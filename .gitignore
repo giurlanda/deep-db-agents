@@ -1,25 +1,45 @@
 # Python
-**/__pycache__/
+__pycache__/
 *.py[cod]
-*.egg-info/
-.eggs/
+*$py.class
+*.so
+
+# Distribution / packaging
 build/
 dist/
-
-# macOS
-.DS_Store
+wheels/
+*.egg-info/
+*.egg
+.eggs/
 
 # Virtualenv / tooling
 .venv/
+venv/
+.test-venv/
 .ruff_cache/
 .pytest_cache/
+.mypy_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Docs (mkdocs build output)
+site/
 
 # Env
 .env
+.env.*
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
 
 # Materialized query results / workspace
 workspace/
 *.parquet
 
-#.vscode
-snippets
+# Manual test scripts against real databases
+snippets/
