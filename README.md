@@ -122,7 +122,8 @@ compute statistics — in one code-execution step instead of many separate tool 
 context.
 
 ```bash
-uv pip install -e ".[code-interpreter]"
+pip install "deep-db-agents[code-interpreter]"        # from PyPI
+uv pip install -e ".[code-interpreter]"                # from source
 ```
 
 ```python
@@ -245,14 +246,39 @@ the counters, they never create or reset the object.
 
 ## Installation
 
+### From PyPI
+
+```bash
+pip install "deep-db-agents[mysql,postgres,analysis]"   # install only the extras you need
+```
+
+### From source (development)
+
 ```bash
 uv venv
 uv pip install -e ".[mysql,postgres,analysis,dev]"   # install only the extras you need
 ```
 
-Available extras: `mysql`, `mariadb`, `postgres`, `mongodb`, `neo4j`, `duckdb`,
-`elasticsearch`, `opensearch`, `analysis` (Parquet), `all`, `dev`. SQLite needs no extra (it
-uses the stdlib `sqlite3`).
+Available extras:
+
+| Extra | Installs | Purpose |
+|---|---|---|
+| `mysql` | `pymysql` | MySQL dialect driver |
+| `mariadb` | `pymysql` | MariaDB dialect driver (reuses the MySQL driver) |
+| `postgres` | `psycopg[binary]` | Postgres dialect driver |
+| `mongodb` | `pymongo` | MongoDB dialect driver |
+| `neo4j` | `neo4j` | Neo4j dialect driver |
+| `duckdb` | `duckdb` | DuckDB dialect driver |
+| `elasticsearch` | `elasticsearch` | Elasticsearch dialect driver |
+| `opensearch` | `opensearch-py` | OpenSearch dialect driver |
+| `analysis` | `pandas`, `pyarrow` | Parquet support for `materialize_query` (large-result materialization) |
+| `code-interpreter` | `langchain-quickjs` | Sandboxed JS execution tool (see [Code interpreter](#code-interpreter-experimental)) |
+| `all` | every extra above | Every dialect driver + `analysis` + `code-interpreter` |
+| `dev` | `pytest`, `ruff`, `langchain-openai`, `rich` | Test/lint tooling for contributing to the library |
+| `docs` | `mkdocs`, `mkdocs-material`, `mkdocstrings[python]` | Build the documentation site locally |
+
+SQLite needs no extra (it uses the stdlib `sqlite3`). Extras can be combined, e.g.
+`pip install "deep-db-agents[postgres,mongodb,analysis]"`.
 
 ## Dialect status
 
