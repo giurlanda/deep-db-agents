@@ -1,6 +1,6 @@
 """Factory functions: the entry points of the library.
 
-Exposes ``create_deep_db_agents``, ``create_db_agent`` and ``create_deep_db_multi_agent``,
+Exposes ``create_deep_db_agents``, ``create_db_agents`` and ``create_deep_db_multi_agent``,
 which turn a database URL into a ready-to-use LangChain / Deep Agent.
 """
 
@@ -143,7 +143,7 @@ def create_deep_db_agents(
     )
 
 
-def create_db_agent(
+def create_db_agents(
     db_url: str,
     credential: dict[str, Any] | None = None,
     system: str = "",
@@ -179,9 +179,9 @@ def create_db_agent(
 
     Example:
         ```python
-        from deep_db_agents import create_db_agent
+        from deep_db_agents import create_db_agents
 
-        agent = create_db_agent(
+        agent = create_db_agents(
             "sqlite:///./data/app.db",
             system="Answer briefly, cite the exact table and column names.",
         )

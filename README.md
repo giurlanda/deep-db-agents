@@ -38,8 +38,8 @@ All extra arguments (`model`, `subagents`, `checkpointer`, …) are forwarded as
 
 The library also lets you query **several databases at once**, through
 `create_deep_db_multi_agent` (see [Multi-database agents](#multi-database-agents)), and offers a
-lighter, non-Deep-Agent alternative through `create_db_agent` (see
-[`create_db_agent`: a lighter alternative](#create_db_agent-a-lighter-alternative)).
+lighter, non-Deep-Agent alternative through `create_db_agents` (see
+[`create_db_agents`: a lighter alternative](#create_db_agents-a-lighter-alternative)).
 
 ## Multi-database agents
 
@@ -83,9 +83,9 @@ If sub-agents share a materialization backend (see below), register it once and 
 `invoke`/`ainvoke` — see the full example in
 [Materializing results: the backend registry](#materializing-results-the-backend-registry).
 
-## `create_db_agent`: a lighter alternative
+## `create_db_agents`: a lighter alternative
 
-`create_db_agent` builds a plain LangChain agent (`langchain.agents.create_agent`) instead of a
+`create_db_agents` builds a plain LangChain agent (`langchain.agents.create_agent`) instead of a
 Deep Agent. It goes through the same dialect resolution and tool/prompt construction as
 `create_deep_db_agents`, so credentials, guardrails and error feedback all behave identically —
 what differs is the surrounding harness:
@@ -103,9 +103,9 @@ file-backed results — e.g. quick lookups, dashboards, or a lightweight assista
 another application.
 
 ```python
-from deep_db_agents import create_db_agent
+from deep_db_agents import create_db_agents
 
-agent = create_db_agent(
+agent = create_db_agents(
     "sqlite:///./data/app.db",
     system="Answer briefly, cite the exact table and column names.",
 )
@@ -173,8 +173,8 @@ remain hard exceptions — those signal a limit the agent must not be allowed to
 
 ## Materializing results: the backend registry
 
-The `materialize_query` tool (Deep Agent only, see [`create_db_agent`: a lighter
-alternative](#create_db_agent-a-lighter-alternative)) writes large results to a file (CSV or
+The `materialize_query` tool (Deep Agent only, see [`create_db_agents`: a lighter
+alternative](#create_db_agents-a-lighter-alternative)) writes large results to a file (CSV or
 Parquet) and returns only metadata, a preview and numeric statistics to the agent — see
 [`MaterializedResult`](src/deep_db_agents/workspace.py). To do that it needs a **deepagents
 backend** (a `BackendProtocol` implementation, e.g. `FilesystemBackend`) to write to, and the
