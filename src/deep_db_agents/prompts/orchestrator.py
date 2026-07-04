@@ -1,7 +1,7 @@
 """Generic system prompt for the multi-database orchestrator.
 
 It is prepended to the prompt supplied by the user and to the list of available
-sub-agents in :func:`deep_db_agents.factory.create_deep_db_multi_agent`. It is addressed
+sub-agents in :func:`deep_db_agents.factory.create_deep_db_multi_agents`. It is addressed
 to the LLM, so it is in English (see the language convention in CLAUDE.md).
 """
 

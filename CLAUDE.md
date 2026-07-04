@@ -39,7 +39,7 @@ Flusso: `db_url` → `parse_db_url` → `registry.resolve(scheme)` → istanza `
 File chiave in [src/deep_db_agents/](src/deep_db_agents/):
 
 - [factory.py](src/deep_db_agents/factory.py) — `create_deep_db_agents` (Deep Agent) e
-  `create_db_agent` (agent LangChain semplice). Stessa logica, costruttore finale diverso.
+  `create_db_agents` (agent LangChain semplice). Stessa logica, costruttore finale diverso.
 - [base.py](src/deep_db_agents/base.py) — interfaccia astratta `DbDialect`: ogni dialect
   implementa `system_prompt()` e `build_tools()`.
 - [registry.py](src/deep_db_agents/registry.py) — decorator `@register("scheme")` → mappa

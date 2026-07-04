@@ -8,8 +8,8 @@ Auto-generated reference for the `deep_db_agents` package, extracted from source
     options:
       members:
         - create_deep_db_agents
-        - create_deep_db_multi_agent
-        - create_db_agent
+        - create_deep_db_multi_agents
+        - create_db_agents
         - GuardrailConfig
         - ConnectionConfig
         - SessionMetrics
