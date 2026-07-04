@@ -42,11 +42,16 @@ dev = [
     "langchain-openai",
     "rich>=15.0.0",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+]
 
 [project.urls]
-Homepage = "https://gitlab.com/ai6735118/deep-db-adent"
-Repository = "https://gitlab.com/ai6735118/deep-db-adent"
-Issues = "https://gitlab.com/ai6735118/deep-db-adent/-/issues"
+Homepage = "https://github.com/giurlanda/deep-db-agents"
+Repository = "https://github.com/giurlanda/deep-db-agents"
+Issues = "https://github.com/giurlanda/deep-db-agents/issues"
 
 [tool.hatch.version]
 path = "src/deep_db_agents/__init__.py"

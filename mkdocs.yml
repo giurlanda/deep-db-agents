@@ -1,0 +1,67 @@
+site_name: deep-db-agents
+site_description: Factory to create Deep Agents (LangChain) specialized on different databases.
+repo_url: https://github.com/giurlanda/deep-db-agents
+repo_name: giurlanda/deep-db-agents
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Reference:
+      - Overview: reference/index.md
+      - Factory: reference/factory.md
+      - Connection: reference/connection.md
+      - Registry: reference/registry.md
+      - Backend Registry: reference/backend_registry.md
+      - Guardrails: reference/guardrails.md
+      - Observability: reference/observability.md
+      - Pooling: reference/pooling.md
+      - Tabular: reference/tabular.md
+      - Workspace: reference/workspace.md
+      - Query Errors: reference/query_errors.md
+      - Exceptions: reference/exceptions.md
+      - Base: reference/base.md
+      - URL: reference/url.md
+      - Dialects: reference/dialects.md
+      - Prompts: reference/prompts.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - toc:
+      permalink: true

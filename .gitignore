@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# macOS
+.DS_Store
+
+# Virtualenv / tooling
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# Env
+.env
+
+# Materialized query results / workspace
+workspace/
+*.parquet
+
+#.vscode
+snippets
+
