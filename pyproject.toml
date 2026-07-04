@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deep-db-agents"
+dynamic = ["version"]
+description = "Factory to create Deep Agents (LangChain) specialized on different databases (MySQL, Postgres, MongoDB, Neo4j, SQLite, DuckDB)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Hawk" }]
+keywords = ["langchain", "deepagents", "agent", "database", "sql", "mysql", "postgres"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "deepagents>=0.6,<0.7",
+    "langchain>=1.0,<2.0",
+    "langchain-core>=1.0,<2.0",
+    "langchain-anthropic>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+mysql = ["pymysql>=1.1"]
+mariadb = ["pymysql>=1.1"]
+postgres = ["psycopg[binary]>=3.1"]
+mongodb = ["pymongo>=4.6"]
+neo4j = ["neo4j>=5.0"]
+duckdb = ["duckdb>=1.0"]
+elasticsearch = ["elasticsearch>=8.0"]
+opensearch = ["opensearch-py>=2.0"]
+analysis = ["pandas>=2.0", "pyarrow>=15.0"]
+code-interpreter = ["langchain-quickjs>=0.3,<0.4"]
+all = ["deep-db-agents[mysql,mariadb,postgres,mongodb,neo4j,duckdb,elasticsearch,opensearch,analysis,code-interpreter]"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "langchain-openai",
+    "rich>=15.0.0",
+]
+
+[project.urls]
+Homepage = "https://gitlab.com/ai6735118/deep-db-adent"
+Repository = "https://gitlab.com/ai6735118/deep-db-adent"
+Issues = "https://gitlab.com/ai6735118/deep-db-adent/-/issues"
+
+[tool.hatch.version]
+path = "src/deep_db_agents/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deep_db_agents"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
