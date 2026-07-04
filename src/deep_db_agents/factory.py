@@ -1,6 +1,6 @@
 """Factory functions: the entry points of the library.
 
-Exposes ``create_deep_db_agents``, ``create_db_agents`` and ``create_deep_db_multi_agent``,
+Exposes ``create_deep_db_agents``, ``create_db_agents`` and ``create_deep_db_multi_agents``,
 which turn a database URL into a ready-to-use LangChain / Deep Agent.
 """
 
@@ -202,7 +202,7 @@ def create_db_agents(
     )
 
 
-def create_deep_db_multi_agent(
+def create_deep_db_multi_agents(
     db_agents: Mapping[str, Mapping[str, Any]],
     system: str = "",
     **kwargs: Any,
@@ -235,12 +235,12 @@ def create_deep_db_multi_agent(
 
     Example:
         ```python
-        from deep_db_agents import create_deep_db_agents, create_deep_db_multi_agent
+        from deep_db_agents import create_deep_db_agents, create_deep_db_multi_agents
 
         orders_agent = create_deep_db_agents("postgres://localhost:5432/orders")
         events_agent = create_deep_db_agents("mongodb://localhost:27017/events")
 
-        orchestrator = create_deep_db_multi_agent(
+        orchestrator = create_deep_db_multi_agents(
             {
                 "orders": {
                     "description": "Orders and customers (Postgres)",

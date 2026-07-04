@@ -37,19 +37,19 @@ All extra arguments (`model`, `subagents`, `checkpointer`, …) are forwarded as
 `create_deep_agent`.
 
 The library also lets you query **several databases at once**, through
-`create_deep_db_multi_agent` (see [Multi-database agents](#multi-database-agents)), and offers a
+`create_deep_db_multi_agents` (see [Multi-database agents](#multi-database-agents)), and offers a
 lighter, non-Deep-Agent alternative through `create_db_agents` (see
 [`create_db_agents`: a lighter alternative](#create_db_agents-a-lighter-alternative)).
 
 ## Multi-database agents
 
-`create_deep_db_multi_agent` builds an **orchestrator** agent that never queries a database
+`create_deep_db_multi_agents` builds an **orchestrator** agent that never queries a database
 directly: it delegates each sub-question to the sub-agent specialized on the relevant database
 (through the `task` tool) and combines the results. This is how you answer questions that span
 multiple data sources.
 
 ```python
-from deep_db_agents import create_deep_db_agents, create_deep_db_multi_agent
+from deep_db_agents import create_deep_db_agents, create_deep_db_multi_agents
 
 orders_agent = create_deep_db_agents(
     "postgres://localhost:5432",
@@ -60,7 +60,7 @@ events_agent = create_deep_db_agents(
     credential={"database": "events"},
 )
 
-orchestrator = create_deep_db_multi_agent(
+orchestrator = create_deep_db_multi_agents(
     db_agents={
         "orders": {"description": "Orders and customers (Postgres)", "agent": orders_agent},
         "events": {"description": "Raw event log (MongoDB)", "agent": events_agent},

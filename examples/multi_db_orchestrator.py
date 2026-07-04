@@ -13,7 +13,7 @@ Prerequisiti:
 
 from __future__ import annotations
 
-from deep_db_agents import GuardrailConfig, create_deep_db_agents, create_deep_db_multi_agent
+from deep_db_agents import GuardrailConfig, create_deep_db_agents, create_deep_db_multi_agents
 
 
 def main() -> None:
@@ -39,7 +39,7 @@ def main() -> None:
     )
 
     # 2) L'orchestratore: riceve i sotto-agenti con nome + descrizione e li coordina.
-    orchestrator = create_deep_db_multi_agent(
+    orchestrator = create_deep_db_multi_agents(
         db_agents={
             "sales": {
                 "description": "Ordini e fatturato (Postgres). Aggrega importi e conteggi "

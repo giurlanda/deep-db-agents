@@ -11,14 +11,14 @@ from .exceptions import (
     QueryNotAllowedError,
     UnsupportedSchemeError,
 )
-from .factory import create_db_agents, create_deep_db_agents, create_deep_db_multi_agent
+from .factory import create_db_agents, create_deep_db_agents, create_deep_db_multi_agents
 from .guardrails import GuardrailConfig
 from .observability import SessionMetrics, configure_logging
 from .registry import available_schemes
 
 __all__ = [
     "create_deep_db_agents",
-    "create_deep_db_multi_agent",
+    "create_deep_db_multi_agents",
     "create_db_agents",
     "GuardrailConfig",
     "ConnectionConfig",
