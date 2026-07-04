@@ -4,6 +4,8 @@ Simplified creation of **Deep Agents** ([LangChain](https://github.com/langchain
 —generic or specialized on a specific database (MySQL, MariaDB, Postgres, MongoDB, Neo4j,
 SQLite, DuckDB, Elasticsearch, OpenSearch)—through a single factory function.
 
+📖 Full API reference: **[giurlanda.github.io/deep-db-agents](https://giurlanda.github.io/deep-db-agents/)**
+
 ## Idea
 
 ```python
