@@ -78,10 +78,9 @@ Each sub-agent keeps its own tools and credentials in its own closures — the o
 ever sees the sub-agents' descriptions and their final answers, never raw rows. `db_agents` values
 must be agents already built by `create_deep_db_agents` (compiled, with a working `.invoke`).
 
-If sub-agents share a materialization backend (see below), register it once and pass the same
-`be_uuid` to every agent, including the orchestrator, and forward it through `config` on
-`invoke`/`ainvoke` — see the full example in
-[Materializing results: the backend registry](#materializing-results-the-backend-registry).
+If sub-agents should share one materialization backend (see below), pass the same `backend=`
+instance to every `create_deep_db_agents` call and to the orchestrator — see the full example in
+[Materializing results: the filesystem backend](#materializing-results-the-filesystem-backend).
 
 ## `create_db_agents`: a lighter alternative
 
@@ -171,55 +170,51 @@ configured `credential["index"]` pattern on Elasticsearch/OpenSearch): the opera
 Only the session-level guardrails (row budget exhausted, EXPLAIN row-estimate threshold exceeded)
 remain hard exceptions — those signal a limit the agent must not be allowed to work around.
 
-## Materializing results: the backend registry
+## Materializing results: the filesystem backend
 
 The `materialize_query` tool (Deep Agent only, see [`create_db_agents`: a lighter
 alternative](#create_db_agents-a-lighter-alternative)) writes large results to a file (CSV or
 Parquet) and returns only metadata, a preview and numeric statistics to the agent — see
 [`MaterializedResult`](src/deep_db_agents/workspace.py). To do that it needs a **deepagents
-backend** (a `BackendProtocol` implementation, e.g. `FilesystemBackend`) to write to, and the
-tool resolves it at call time, not at agent-construction time.
+backend** (a `BackendProtocol` implementation, e.g. `StateBackend` or `FilesystemBackend`) to
+write to.
 
-That indirection exists because the backend can't simply live in the tool's closure like the
-credentials do: the same backend is often shared across several agents (e.g. all sub-agents of a
-multi-database orchestrator), and passing the live object around risks leaking a reference that
-outlives the session. Instead:
+The backend is injected **directly into the tool's closures** — the same instance that is handed
+to the agent, so materialized files land in the agent's own filesystem:
 
-1. **Register** the backend once in the process-wide `BERegistry` singleton — `add()` returns an
-   opaque UUID.
-2. Pass that **UUID** (not the backend) to every agent that should be able to use it, via
-   `config={"configurable": {"be_uuid": ...}}` at `invoke`/`ainvoke` time.
-3. Inside the tool, the dialect looks up `runtime.config["configurable"]["be_uuid"]` and resolves
-   it back to the backend with `BERegistry().get(be_uuid)`. If the key is missing or unregistered,
-   the tool returns an error message to the agent instead of raising.
-4. **Remove** the backend when you're done with the session (`BERegistry().remove(be_uuid)`) —
-   whoever calls `add()` is responsible for the matching `remove()`, otherwise the instance stays
-   referenced (and the workspace files reachable) for the whole process lifetime.
+1. `create_deep_db_agents` reads the `backend=` kwarg; when you omit it, it defaults to an
+   ephemeral `StateBackend()` (files live in the agent's LangGraph state for the thread).
+2. That same instance is forwarded both to `create_deep_agent` (giving the agent its filesystem)
+   **and** captured in the `materialize_query` closure, so the tool writes exactly where the agent
+   reads.
+3. When the write goes through a `StateBackend`, the tool returns a `Command` that carries the
+   files to apply to the agent's state; external backends (`FilesystemBackend`/`StoreBackend`)
+   persist directly, so only the summary message is returned.
+4. `create_db_agents` (the plain LangChain agent) has no filesystem, so its tools receive
+   `backend=None`; if a file-writing tool is ever reached it simply reports that no backend is
+   configured instead of raising.
+
+To share one backend across the sub-agents of a multi-database orchestrator, pass the same
+instance to each `create_deep_db_agents` call and to `create_deep_db_multi_agents`.
 
 ```python
 from deepagents.backends import FilesystemBackend
 from deep_db_agents import create_deep_db_agents
-from deep_db_agents.backend_registry import BERegistry
 
-ber = BERegistry()
-be_uuid = ber.add(FilesystemBackend(root_dir="./workspace", virtual_mode=True))
+# A persistent backend so materialized files survive on disk; omit `backend=` to get an
+# ephemeral StateBackend by default.
+backend = FilesystemBackend(root_dir="./workspace", virtual_mode=True)
 
 agent = create_deep_db_agents(
     "duckdb:///warehouse/dw.duckdb",
-    backend=ber.get(be_uuid),  # forwarded to create_deep_agent, gives the agent its filesystem
+    backend=backend,  # forwarded to the agent and injected into materialize_query's closure
 )
 
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "Export all 2025 orders to a file."}]},
-    config={"configurable": {"thread_id": "session-1", "be_uuid": be_uuid}},
+    config={"configurable": {"thread_id": "session-1"}},
 )
-
-ber.remove(be_uuid)  # when the session ends
 ```
-
-The `backend=` kwarg (forwarded to `create_deep_agent`) is what gives the agent its virtual
-filesystem in the first place; `be_uuid` in `config` is what lets the `materialize_query` tool
-find that same backend again when it runs. Both must point at the same registered instance.
 
 ## Metrics
 

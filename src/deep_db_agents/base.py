@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
+from deepagents.backends.protocol import BackendProtocol
 from langchain_core.tools import BaseTool
 
 from .connection import ConnectionConfig
@@ -40,6 +41,7 @@ class DbDialect(ABC):
         conn: ConnectionConfig,
         guardrails: GuardrailConfig,
         materialize_enable: bool = False,
+        backend: BackendProtocol | None = None,
     ) -> Sequence[BaseTool]:
         """Build the LangChain tools bound to the connection and guardrails.
 
@@ -48,6 +50,9 @@ class DbDialect(ABC):
             guardrails: Hard safety thresholds enforced by the tool wrappers.
             materialize_enable: Whether to expose the tool(s) that materialize large
                 results to file instead of returning them inline.
+            backend: Filesystem backend injected into the file-writing tools' closures.
+                When ``None``, those tools report that they cannot write to file because
+                no backend is configured.
 
         Returns:
             Sequence[BaseTool]: The tools built for this dialect, with credentials

@@ -8,14 +8,14 @@ from deep_db_agents.dialects.elasticsearch import ElasticsearchDialect
 from deep_db_agents.guardrails import GuardrailConfig
 
 
-def _invoke_aggregate(tool, *, be_uuid=None, **kwargs):
+def _invoke_aggregate(tool, **kwargs):
     """Invoca ``aggregate`` chiamando la funzione grezza con un ``ToolRuntime`` fittizio.
 
     ``ToolRuntime`` è iniettato da ToolNode a runtime e non è fornibile via ``.invoke`` nei
-    test unitari: passiamo uno stub con il solo ``config`` che il tool interroga.
+    test unitari: passiamo uno stub con il solo ``tool_call_id`` che il tool usa quando
+    materializza l'output su file tramite ``write_command``.
     """
-    configurable = {"be_uuid": be_uuid} if be_uuid is not None else {}
-    runtime = SimpleNamespace(config={"configurable": configurable})
+    runtime = SimpleNamespace(tool_call_id="call-1")
     return tool.func(runtime=runtime, **kwargs)
 
 
@@ -69,7 +69,9 @@ def _hit(i: int) -> dict:
     return {"_id": str(i), "_index": "sakila1", "_source": {"title": f"film {i}"}}
 
 
-def _make(monkeypatch, docs, guardrails=None, credential=None, stats=None, mapping=None):
+def _make(
+    monkeypatch, docs, guardrails=None, credential=None, stats=None, mapping=None, backend=None
+):
     dialect = ElasticsearchDialect()
     client = FakeClient(docs, stats=stats, mapping=mapping)
 
@@ -81,7 +83,9 @@ def _make(monkeypatch, docs, guardrails=None, credential=None, stats=None, mappi
     conn = ConnectionConfig(
         scheme="elasticsearch", host="localhost", port=9200, credential=credential or {}
     )
-    built = dialect.build_tools(conn, guardrails or GuardrailConfig(), materialize_enable=True)
+    built = dialect.build_tools(
+        conn, guardrails or GuardrailConfig(), materialize_enable=True, backend=backend
+    )
     return {t.name: t for t in built}
 
 
@@ -166,7 +170,6 @@ def test_aggregate_truncates_large_output_without_backend(monkeypatch):
 def test_aggregate_materializes_large_output_with_backend(monkeypatch):
     from deepagents.backends.protocol import BackendProtocol, WriteResult
 
-    from deep_db_agents.backend_registry import BERegistry
     from deep_db_agents.dialects import search_base
 
     class RecordingBackend(BackendProtocol):
@@ -179,19 +182,17 @@ def test_aggregate_materializes_large_output_with_backend(monkeypatch):
 
     monkeypatch.setattr(search_base, "MAX_AGG_INLINE_CHARS", 5)
     backend = RecordingBackend()
-    key = BERegistry().add(backend)
-    try:
-        tools = _make(monkeypatch, [_hit(i) for i in range(3)])
-        out = _invoke_aggregate(
-            tools["aggregate"],
-            be_uuid=key,
-            index="sakila1",
-            aggs='{"by_title": {"terms": {"field": "title"}}}',
-        )
-    finally:
-        BERegistry().remove(key)
-    assert "saved to aggregations_" in out
-    assert "preview" in out.lower()
+    # Backend injected directly into the tool closure (no more BERegistry indirection).
+    tools = _make(monkeypatch, [_hit(i) for i in range(3)], backend=backend)
+    out = _invoke_aggregate(
+        tools["aggregate"],
+        index="sakila1",
+        aggs='{"by_title": {"terms": {"field": "title"}}}',
+    )
+    # The tool now returns a Command carrying the tool message with the preview.
+    message = out.update["messages"][0].content
+    assert "saved to aggregations_" in message
+    assert "preview" in message.lower()
     # Il payload completo è finito su file, non nel contesto.
     assert len(backend.written) == 1
     saved = next(iter(backend.written.values()))
