@@ -30,6 +30,23 @@ I test girano **senza un database reale**: la fixture `make_dialect` in [tests/c
 mocka `_connect` con un `FakeCursor`/`FakeConnection` DB-API programmabile. Nuovi test di
 dialect devono seguire questo pattern, non connettersi a un DB.
 
+I comandi per la build degli artefatti:
+```bash
+rm -rf dist/.              # remove old buold
+uv run python -m build.    # build artefacts
+uv run twine check dist/*. # check build
+```
+
+Per upload su testpypi:
+```bash
+uv run twine upload --repository testpypi --skip-existing dist/*
+```
+
+Per upload su pypi:
+```bash
+uv run twine upload --repository pypi --skip-existing dist/*
+```
+
 ## Architettura
 
 Flusso: `db_url` → `parse_db_url` → `registry.resolve(scheme)` → istanza `DbDialect` →
