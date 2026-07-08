@@ -4,7 +4,7 @@ import pytest
 
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.mysql import MySQLDialect
-from deep_db_agents.exceptions import GuardrailError, QueryNotAllowedError
+from deep_db_agents.exceptions import QueryNotAllowedError
 from deep_db_agents.guardrails import GuardrailConfig
 
 CONN = ConnectionConfig(scheme="mysql", host="localhost", port=3306, credential={"user": "u"})
@@ -49,13 +49,17 @@ def test_run_query_rejects_non_select(make_dialect):
 
 
 def test_run_query_blocked_over_explain_threshold(make_dialect):
-    tools, _ = _tools(
+    tools, cursor = _tools(
         make_dialect,
         _handler(estimate=10_000_000),
         guardrails=GuardrailConfig(explain_row_threshold=1000),
     )
-    with pytest.raises(GuardrailError):
-        tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    out = tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    # The estimate block is reflected back as corrective feedback, not raised.
+    assert "was not executed" in out.lower()
+    assert "aggregate" in out.lower()
+    # The data query was never run: only SET + EXPLAIN reached the driver.
+    assert not any("_q" in sql for sql, _ in cursor.executed)
 
 
 def test_count_rows(make_dialect):

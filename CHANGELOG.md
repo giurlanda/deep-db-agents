@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-08
+
+### Changed
+
+- The EXPLAIN row-estimate guardrail no longer interrupts the agent's turn: when a
+  query's estimated result set exceeds `explain_row_threshold`, the query tools reflect
+  the block back to the agent as corrective feedback (refine filters or aggregate and
+  retry) instead of raising. The query is still **not executed**. The session row budget
+  remains a hard exception.
+
+### Added
+
+- New `EstimateExceededError` exception (a subclass of `GuardrailError`), raised by
+  `GuardrailConfig.check_estimate` and re-exported from the package root.
+
 ## [0.1.1] - 2026-07-04
 
 ### Changed

@@ -93,8 +93,10 @@ def test_run_query_blocked_by_real_estimate(db_tools):
     conn = ConnectionConfig(scheme="sqlite", host=None, port=None, credential={}, path=conn_path)
     built = SQLiteDialect().build_tools(conn, GuardrailConfig(explain_row_threshold=1))
     tools = {t.name: t for t in built}
-    with pytest.raises(GuardrailError):
-        tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    # The estimate block is reflected back as corrective feedback, not raised.
+    out = tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    assert "was not executed" in out.lower()
+    assert "aggregate" in out.lower()
 
 
 def test_readonly_connection_blocks_writes(tmp_path):

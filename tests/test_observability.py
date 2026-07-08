@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from deep_db_agents.exceptions import GuardrailError
+from deep_db_agents.exceptions import EstimateExceededError, GuardrailError
 from deep_db_agents.guardrails import GuardrailConfig, SessionBudget
 from deep_db_agents.observability import SessionMetrics, configure_logging
 
@@ -29,7 +29,7 @@ def test_budget_exhausted_recorded():
 def test_check_estimate_records_block():
     metrics = SessionMetrics()
     guardrails = GuardrailConfig(explain_row_threshold=10)
-    with pytest.raises(GuardrailError):
+    with pytest.raises(EstimateExceededError):
         guardrails.check_estimate(1000, metrics)
     assert metrics.estimate_blocked == 1
     # Sotto soglia non incrementa.

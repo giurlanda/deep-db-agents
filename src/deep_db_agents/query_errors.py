@@ -11,15 +11,18 @@ Whitelist/scope violations (``QueryNotAllowedError``: out-of-scope index/collect
 disallowed stage or write clauses, malformed query) also flow through here and become
 feedback: the forbidden operation is **still not executed** — it is blocked *before*
 reaching the driver — but the rejection is communicated to the agent as a corrective
-message rather than interrupting the turn. Budget and threshold guardrails
-(``GuardrailError``), on the other hand, remain hard exceptions signaling a session
-limit that must not be bypassed.
+message rather than interrupting the turn. The EXPLAIN row-estimate guardrail
+(``EstimateExceededError``) is handled the same way by ``format_estimate_block``: the
+query is **not executed**, but the agent is asked to refine or aggregate and retry. The
+session row budget (``GuardrailError`` from ``SessionBudget``), on the other hand, remains
+a hard exception signaling a limit that must not be bypassed.
 """
 
 from __future__ import annotations
 
 import re
 
+from .exceptions import GuardrailError
 from .observability import get_logger
 
 _logger = get_logger("query_errors")
@@ -86,3 +89,34 @@ def format_query_error(exc: Exception, *, query: str | None = None, what: str = 
         "if needed, inspect the schema first with the exploration tools."
     )
     return "\n".join(lines)
+
+
+def format_estimate_block(exc: GuardrailError, *, what: str = "query") -> str:
+    """Format an EXPLAIN row-estimate guardrail block as corrective feedback.
+
+    Turns the ``EstimateExceededError`` raised by ``GuardrailConfig.check_estimate`` into
+    a message the agent can act on: the query was **not executed** because its estimated
+    result set is too large, so the agent should refine its filters or aggregate and retry.
+
+    Args:
+        exc: The guardrail exception raised when the estimate exceeded the threshold; its
+            message already describes the estimate and the threshold.
+        what: Label for the blocked construct (``"query"``, ``"search"``, ...), used in
+            the message.
+
+    Returns:
+        str: A message describing the block, suitable for returning to the agent as tool
+        output.
+    """
+    detail = str(exc).strip() or "(no detail provided)"
+    # The block is corrective feedback for the agent, but also an observable event on the
+    # operator side: logged alongside the reflected message.
+    _logger.warning("%s blocked by the estimate guardrail: %s", what, detail)
+    return "\n".join(
+        [
+            f"Warning: the {what} was NOT executed by the database.",
+            f"Detail: {detail}",
+            f"Narrow the {what} with more selective filters or aggregate in the database "
+            "to reduce the estimated result set, then retry.",
+        ]
+    )

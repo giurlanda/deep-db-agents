@@ -87,6 +87,32 @@ def test_run_cypher_returns_feedback_on_driver_error(monkeypatch):
     assert "MATCH (n) RETUN n" in out  # query inviata riportata nel feedback
 
 
+class _FakeSummary:
+    def __init__(self, estimated_rows):
+        self.plan = {"args": {"EstimatedRows": estimated_rows}}
+
+
+class _FakeExplainResult:
+    def __init__(self, estimated_rows):
+        self._estimated_rows = estimated_rows
+
+    def consume(self):
+        return _FakeSummary(self._estimated_rows)
+
+
+def test_run_cypher_blocked_over_estimate(monkeypatch):
+    # La stima EXPLAIN sopra soglia viene riflessa come feedback correttivo, non sollevata.
+    def on_run(cypher):
+        if cypher.upper().startswith("EXPLAIN"):
+            return _FakeExplainResult(5_000_000)
+        return FakeResult(["n"], [FakeRecord({"n": 1})])
+
+    tools = _tools(monkeypatch, on_run, GuardrailConfig(explain_row_threshold=1000))
+    out = tools["run_cypher"].invoke({"cypher": "MATCH (n) RETURN n"})
+    assert "was not executed" in out.lower()
+    assert "aggregate" in out.lower()
+
+
 def test_run_cypher_rejects_write_clause(monkeypatch):
     # Le violazioni di whitelist non vengono eseguite: sono riportate come feedback correttivo.
     tools = _tools(monkeypatch, lambda cypher: FakeResult([], []))

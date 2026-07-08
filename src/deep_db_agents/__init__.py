@@ -5,6 +5,7 @@ from __future__ import annotations
 from .connection import ConnectionConfig
 from .exceptions import (
     DeepDbAgentError,
+    EstimateExceededError,
     GuardrailError,
     InvalidDbUrlError,
     InvalidMultiAgentConfigError,
@@ -31,6 +32,7 @@ __all__ = [
     "InvalidMultiAgentConfigError",
     "QueryNotAllowedError",
     "GuardrailError",
+    "EstimateExceededError",
 ]
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

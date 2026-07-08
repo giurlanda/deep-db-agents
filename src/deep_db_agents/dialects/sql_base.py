@@ -21,9 +21,9 @@ from langchain.tools import BaseTool, ToolRuntime, tool
 from ..backend_registry import BERegistry
 from ..base import DbDialect
 from ..connection import ConnectionConfig
-from ..exceptions import DeepDbAgentError, QueryNotAllowedError
+from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
 from ..guardrails import GuardrailConfig, SessionBudget
-from ..query_errors import format_query_error
+from ..query_errors import format_estimate_block, format_query_error
 from ..workspace import materialize_result
 
 # Simple SQL identifier (table/column). Intentionally restrictive.
@@ -370,6 +370,8 @@ class SqlDialect(DbDialect):
                     rows = cur.fetchall()
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=sql, what="query")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
+                return format_estimate_block(exc, what="query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -403,6 +405,8 @@ class SqlDialect(DbDialect):
                     rows = cur.fetchall()
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=sql, what="query")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
+                return format_estimate_block(exc, what="query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent

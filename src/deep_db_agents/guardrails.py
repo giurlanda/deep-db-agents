@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .exceptions import GuardrailError
+from .exceptions import EstimateExceededError, GuardrailError
 from .observability import SessionMetrics, get_logger
 
 _logger = get_logger("guardrails")
@@ -64,7 +64,9 @@ class GuardrailConfig:
             metrics: Optional session counters to update when the query is blocked.
 
         Raises:
-            GuardrailError: If ``estimated_rows`` exceeds ``explain_row_threshold``.
+            EstimateExceededError: If ``estimated_rows`` exceeds ``explain_row_threshold``.
+                A subclass of ``GuardrailError`` that the query tools reflect back to the
+                agent as corrective feedback instead of interrupting the turn.
         """
         if estimated_rows > self.explain_row_threshold:
             if metrics is not None:
@@ -74,7 +76,7 @@ class GuardrailConfig:
                 estimated_rows,
                 self.explain_row_threshold,
             )
-            raise GuardrailError(
+            raise EstimateExceededError(
                 f"Query blocked: ~{estimated_rows:,} estimated rows exceed the "
                 f"threshold of {self.explain_row_threshold:,}. Refine your filters "
                 "or use aggregation."
