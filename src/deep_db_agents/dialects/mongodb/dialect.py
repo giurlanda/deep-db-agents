@@ -15,10 +15,10 @@ from langchain.tools import BaseTool, ToolRuntime, tool
 from ...backend_registry import BERegistry
 from ...base import DbDialect
 from ...connection import ConnectionConfig
-from ...exceptions import DeepDbAgentError, QueryNotAllowedError
+from ...exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
 from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
-from ...query_errors import format_query_error
+from ...query_errors import format_estimate_block, format_query_error
 from ...registry import register
 from ...workspace import materialize_result
 from . import tools
@@ -190,6 +190,8 @@ class MongoDBDialect(DbDialect):
                     docs = _find(coll, query, proj, skip=skip, limit=limit)
             except QueryNotAllowedError as exc:  # noqa: BLE001 - forbidden filter → feedback
                 return format_query_error(exc, query=str(filter), what="filter")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high → feedback to the agent
+                return format_estimate_block(exc, what="find")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent

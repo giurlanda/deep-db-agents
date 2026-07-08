@@ -26,10 +26,10 @@ from langchain.tools import BaseTool, ToolRuntime, tool
 from ..backend_registry import BERegistry
 from ..base import DbDialect
 from ..connection import ConnectionConfig
-from ..exceptions import DeepDbAgentError, QueryNotAllowedError
+from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
 from ..guardrails import GuardrailConfig, SessionBudget
 from ..pooling import LazyClient
-from ..query_errors import format_query_error
+from ..query_errors import format_estimate_block, format_query_error
 from ..tabular import docs_to_table
 from ..workspace import materialize_result
 
@@ -356,6 +356,8 @@ class SearchDialect(DbDialect):
                 hits, limit = _paginated_search(target, q, page, page_size)
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=str(query), what="query")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
+                return format_estimate_block(exc, what="search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -386,6 +388,8 @@ class SearchDialect(DbDialect):
                 hits, limit = _paginated_search(target, q, page, page_size)
             except QueryNotAllowedError as exc:  # noqa: BLE001 - scope violation -> feedback to the agent
                 return format_query_error(exc, query=query_string, what="query_string search")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
+                return format_estimate_block(exc, what="query_string search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent

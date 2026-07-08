@@ -6,7 +6,7 @@ import pytest
 
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.mongodb import MongoDBDialect
-from deep_db_agents.exceptions import GuardrailError, QueryNotAllowedError
+from deep_db_agents.exceptions import QueryNotAllowedError
 from deep_db_agents.guardrails import GuardrailConfig
 
 CONN = ConnectionConfig(
@@ -63,8 +63,10 @@ def test_find_forces_limit_and_counts(monkeypatch):
 def test_find_blocked_over_estimate(monkeypatch):
     docs = [{"_id": i} for i in range(50)]
     tools = _make(monkeypatch, docs, GuardrailConfig(explain_row_threshold=10))
-    with pytest.raises(GuardrailError):
-        tools["find"].invoke({"collection": "ordini"})
+    # The estimate block is reflected back as corrective feedback, not raised.
+    out = tools["find"].invoke({"collection": "ordini"})
+    assert "was not executed" in out.lower()
+    assert "aggregate" in out.lower()
 
 
 def test_aggregate_rejects_write_stage(monkeypatch):

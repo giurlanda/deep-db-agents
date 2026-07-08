@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from deep_db_agents.exceptions import GuardrailError
+from deep_db_agents.exceptions import EstimateExceededError, GuardrailError
 from deep_db_agents.guardrails import GuardrailConfig, SessionBudget
 
 
@@ -21,8 +21,14 @@ def test_clamp_limit_caps_at_hard_max():
 def test_check_estimate_blocks_over_threshold():
     g = GuardrailConfig(explain_row_threshold=1000)
     g.check_estimate(999)  # ok
-    with pytest.raises(GuardrailError):
+    with pytest.raises(EstimateExceededError):
         g.check_estimate(1001)
+
+
+def test_estimate_exceeded_is_a_guardrail_error():
+    # Subclass relationship: check_estimate stays a GuardrailError while being catchable
+    # on its own so the tools can turn it into feedback (the session budget stays hard).
+    assert issubclass(EstimateExceededError, GuardrailError)
 
 
 def test_session_budget_enforced():

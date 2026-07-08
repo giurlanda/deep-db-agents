@@ -3,11 +3,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-import pytest
-
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.opensearch import OpenSearchDialect
-from deep_db_agents.exceptions import GuardrailError
 from deep_db_agents.guardrails import GuardrailConfig
 from deep_db_agents.registry import resolve
 
@@ -109,8 +106,10 @@ def test_run_query_forces_limit(monkeypatch):
 def test_run_query_blocked_over_estimate(monkeypatch):
     docs = [_hit(i) for i in range(50)]
     tools = _make(monkeypatch, docs, GuardrailConfig(explain_row_threshold=10))
-    with pytest.raises(GuardrailError):
-        tools["run_query"].invoke({})
+    # The estimate block is reflected back as corrective feedback, not raised.
+    out = tools["run_query"].invoke({})
+    assert "was not executed" in out.lower()
+    assert "aggregate" in out.lower()
 
 
 def test_aggregate_returns_aggregation_results(monkeypatch):

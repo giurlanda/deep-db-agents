@@ -39,3 +39,13 @@ class QueryNotAllowedError(DeepDbAgentError):
 
 class GuardrailError(DeepDbAgentError):
     """A hard guardrail blocked execution (e.g. EXPLAIN threshold or budget exceeded)."""
+
+
+class EstimateExceededError(GuardrailError):
+    """The EXPLAIN row estimate exceeded the configured threshold.
+
+    Unlike other :class:`GuardrailError` cases (e.g. the session row budget), the query
+    tools catch this and turn it into corrective feedback for the agent instead of
+    interrupting the turn: the query is still **not executed**, but the agent is told to
+    refine its filters or aggregate and retry.
+    """
