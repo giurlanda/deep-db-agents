@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from deep_db_agents.connection import ConnectionConfig
@@ -103,3 +105,49 @@ def test_count_rows_returns_feedback_on_bad_where(make_dialect):
     out = tools["count_rows"].invoke({"table": "ordini", "where": "nope = 1"})
     assert "unknown column 'nope'" in out
     assert "WHERE nope = 1" in out
+
+
+def _materialize_tools(make_dialect, handler, backend, guardrails=None):
+    dialect, cursor = make_dialect(MySQLDialect, handler)
+    tools = dialect.build_tools(
+        CONN, guardrails or GuardrailConfig(), materialize_enable=True, backend=backend
+    )
+    return {t.name: t for t in tools}, cursor
+
+
+def test_materialize_query_without_backend_reports_missing_backend(make_dialect):
+    # backend=None: il tool non può scrivere su file e lo comunica all'agente.
+    tools, _ = _materialize_tools(make_dialect, _handler(), backend=None)
+    out = tools["materialize_query"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"), sql="SELECT * FROM ordini"
+    )
+    assert "cannot write to file" in out.lower()
+    assert "no filesystem backend" in out.lower()
+
+
+def test_materialize_query_with_backend_writes_and_returns_command(make_dialect):
+    from deepagents.backends.protocol import BackendProtocol, WriteResult
+    from langgraph.types import Command
+
+    class RecordingBackend(BackendProtocol):
+        def __init__(self):
+            self.written: dict[str, str] = {}
+
+        def write(self, path, content):
+            self.written[path] = content
+            return WriteResult(path=path)
+
+    backend = RecordingBackend()
+    tools, _ = _materialize_tools(make_dialect, _handler(), backend=backend)
+    # ToolRuntime is injected by ToolNode; supply a stub with the tool_call_id the tool uses.
+    out = tools["materialize_query"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"),
+        sql="SELECT * FROM ordini",
+        filename="out.csv",
+    )
+    assert isinstance(out, Command)
+    message = out.update["messages"][0].content
+    assert "out.csv" in message
+    assert "2 rows saved" in message
+    # I dati completi sono su file, non nel contesto.
+    assert backend.written["out.csv"].splitlines()[0] == "id,name"

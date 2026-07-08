@@ -21,9 +21,10 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from deepagents.backends.protocol import BackendProtocol
 from langchain.tools import BaseTool, ToolRuntime, tool
+from langgraph.types import Command
 
-from ..backend_registry import BERegistry
 from ..base import DbDialect
 from ..connection import ConnectionConfig
 from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
@@ -31,7 +32,7 @@ from ..guardrails import GuardrailConfig, SessionBudget
 from ..pooling import LazyClient
 from ..query_errors import format_estimate_block, format_query_error
 from ..tabular import docs_to_table
-from ..workspace import materialize_result
+from ..workspace import materialize_result, write_command
 
 # Ceiling on the size (in characters of the serialized JSON) of the ``aggregate`` result
 # returned inline to the agent. High-cardinality or nested ``terms`` aggregations can
@@ -209,6 +210,7 @@ class SearchDialect(DbDialect):
         conn: ConnectionConfig,
         guardrails: GuardrailConfig,
         materialize_enable: bool = False,
+        backend: BackendProtocol | None = None,
     ) -> Sequence[BaseTool]:
         """Builds the LangChain tools exposed to the agent for this search dialect.
 
@@ -217,6 +219,9 @@ class SearchDialect(DbDialect):
             guardrails: Guardrail configuration (limits, timeout, budget) enforced by every
                 tool.
             materialize_enable: Whether to also expose the ``materialize_query`` tool.
+            backend: Filesystem backend injected into the file-writing tools' closures
+                (``aggregate`` overflow and ``materialize_query``); when ``None`` those tools
+                fall back to a truncated preview or report that no backend is configured.
 
         Returns:
             The sequence of tools: ``list_indices``, ``describe_index``, ``count_documents``,
@@ -407,7 +412,7 @@ class SearchDialect(DbDialect):
             index: str | None = None,
             aggs: str | dict = "",
             query: str | dict | None = None,
-        ) -> str:
+        ) -> Command | str:
             """Runs one or more Query DSL aggregations in the engine, without returning documents.
 
             This is the PREFERRED way to summarize data (counts per group, averages, min/max,
@@ -448,18 +453,19 @@ class SearchDialect(DbDialect):
             # aggregations are nested and not tabular like materialize_result); otherwise
             # truncate with a preview and invite the agent to reduce the buckets.
             preview = payload[:MAX_AGG_PREVIEW_CHARS]
-            be_uuid = runtime.config.get("configurable", {}).get("be_uuid")
-            be = BERegistry().get(be_uuid) if be_uuid is not None else None
-            if be is not None:
+            if backend is not None:
                 filename = f"aggregations_{uuid.uuid4().hex[:8]}.json"
-                write_res = be.write(filename, payload)
+                write_res = backend.write(filename, payload)
                 if not write_res.error:
-                    return (
+                    message = (
                         f"Aggregations on {target}: result too large "
                         f"({len(payload):,} characters) saved to {filename}.\n"
                         f"Preview (first {len(preview):,} characters):\n{preview}…\n"
                         "Reduce the buckets' 'size' or refine the aggregation to get it "
                         "fully inline."
+                    )
+                    return write_command(
+                        message, runtime.tool_call_id, getattr(write_res, "files_update", None)
                     )
             return (
                 f"Aggregations on {target}: result too large "
@@ -475,16 +481,14 @@ class SearchDialect(DbDialect):
             query: str | dict | None = None,
             fmt: str = "csv",
             filename: str | None = None,
-        ) -> str:
+        ) -> Command | str:
             """Runs a Query DSL search and saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: path, columns, preview and statistics. Use it for analysis
             or charts on large volumes. Nested values are serialized.
             """
-            ber = BERegistry()
-            be_uuid = runtime.config.get("configurable", {}).get("be_uuid")
-            if be_uuid is None or (be := ber.get(be_uuid)) is None:
-                return "Error: cannot use this tool, backend missing."
+            if backend is None:
+                return "Cannot write to file: no filesystem backend is configured."
             try:
                 target = resolve_index(index, allowed)
                 if isinstance(query, dict):
@@ -506,8 +510,8 @@ class SearchDialect(DbDialect):
             hits = res.get("hits", {}).get("hits", [])
             budget.charge(len(hits))
             columns, rows = hits_to_table(hits)
-            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=be)
-            return result.to_summary()
+            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=backend)
+            return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [
             list_indices,

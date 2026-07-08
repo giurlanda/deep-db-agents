@@ -14,6 +14,12 @@ generico + uno specifico, e delega a `create_deep_agent` / `create_agent`.
 Database supportati: MySQL, MariaDB, Postgres, MongoDB, Neo4j, SQLite, DuckDB, Elasticsearch,
 OpenSearch.
 
+## GitHub repository
+
+Esegui i commit in lingua inglese con commenti sintetici e concisi.
+
+Apri una pull request seguendo il template PULL_REQUEST_TEMPLATE.md e lincando sempre l'issue collegata.
+
 ## Comandi
 
 Il progetto usa **uv**. Prefissa i comandi con `uv run`.
@@ -29,6 +35,23 @@ uv run ruff format src tests                 # format
 I test girano **senza un database reale**: la fixture `make_dialect` in [tests/conftest.py](tests/conftest.py)
 mocka `_connect` con un `FakeCursor`/`FakeConnection` DB-API programmabile. Nuovi test di
 dialect devono seguire questo pattern, non connettersi a un DB.
+
+I comandi per la build degli artefatti:
+```bash
+rm -rf dist/.              # remove old buold
+uv run python -m build.    # build artefacts
+uv run twine check dist/*. # check build
+```
+
+Per upload su testpypi:
+```bash
+uv run twine upload --repository testpypi --skip-existing dist/*
+```
+
+Per upload su pypi:
+```bash
+uv run twine upload --repository pypi --skip-existing dist/*
+```
 
 ## Architettura
 

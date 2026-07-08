@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from contextlib import contextmanager
 
+from deepagents.backends.protocol import BackendProtocol
 from langchain.tools import BaseTool, ToolRuntime, tool
+from langgraph.types import Command
 
-from ...backend_registry import BERegistry
 from ...base import DbDialect
 from ...connection import ConnectionConfig
 from ...exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
@@ -20,7 +21,7 @@ from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
 from ...query_errors import format_estimate_block, format_query_error
 from ...registry import register
-from ...workspace import materialize_result
+from ...workspace import materialize_result, write_command
 from . import tools
 from .prompt import MONGODB_SYSTEM_PROMPT
 
@@ -63,6 +64,7 @@ class MongoDBDialect(DbDialect):
         conn: ConnectionConfig,
         guardrails: GuardrailConfig,
         materialize_enable: bool = False,
+        backend: BackendProtocol | None = None,
     ) -> Sequence[BaseTool]:
         metrics = getattr(self, "_metrics", None)
         budget = SessionBudget(guardrails.row_budget, metrics=metrics)
@@ -240,17 +242,15 @@ class MongoDBDialect(DbDialect):
             pipeline: str | list,
             fmt: str = "csv",
             filename: str | None = None,
-        ) -> str:
+        ) -> Command | str:
             """Runs an aggregation pipeline (a string containing a JSON list of stages) and
             saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: path, columns, preview and statistics. Use it for analysis
             or charts on large volumes. Nested values are serialized.
             """
-            ber = BERegistry()
-            be_uuid = runtime.config.get("configurable", {}).get("be_uuid")
-            if be_uuid is None or (be := ber.get(be_uuid)) is None:
-                return "Error: cannot use this tool, backend missing."
+            if backend is None:
+                return "Cannot write to file: no filesystem backend is configured."
 
             try:
                 if isinstance(pipeline, list):
@@ -269,8 +269,8 @@ class MongoDBDialect(DbDialect):
                 return format_query_error(exc, query=str(pipeline), what="pipeline")
             budget.charge(len(docs))
             columns, rows = tools.docs_to_table(docs)
-            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=be)
-            return result.to_summary()
+            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=backend)
+            return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [
             list_collections,

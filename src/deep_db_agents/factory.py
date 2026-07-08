@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from deepagents import CompiledSubAgent, create_deep_agent
+from deepagents.backends.protocol import BackendProtocol
+from deepagents.backends.state import StateBackend
 from langchain.agents import create_agent
 
 from . import dialects as _dialects  # noqa: F401  (populates the dialect registry)
@@ -33,6 +35,7 @@ def _build_dialect_parts(
     guardrails: GuardrailConfig | None,
     *,
     materialize_enable: bool,
+    backend: BackendProtocol | None = None,
     metrics: SessionMetrics | None = None,
 ) -> tuple[list[Any], str]:
     """Shared logic for the factory functions: URL -> dialect -> (tools, prompt).
@@ -44,6 +47,9 @@ def _build_dialect_parts(
         guardrails: Safety thresholds for the generated tools, or ``None`` for defaults.
         materialize_enable: Whether to expose the ``materialize_*`` tools (require a
             filesystem backend, so only enabled for Deep Agents).
+        backend: Filesystem backend injected into the file-writing tools' closures. Must be
+            the same instance handed to the agent so writes land in its filesystem; ``None``
+            for plain agents, whose file-writing tools then report no backend is configured.
         metrics: Optional ``SessionMetrics`` to attach to the dialect so its tools update
             session counters.
 
@@ -64,7 +70,10 @@ def _build_dialect_parts(
         path=parsed.path,
     )
     db_tools = dialect.build_tools(
-        conn, guardrails or GuardrailConfig(), materialize_enable=materialize_enable
+        conn,
+        guardrails or GuardrailConfig(),
+        materialize_enable=materialize_enable,
+        backend=backend,
     )
 
     prompt = dialect.system_prompt()
@@ -122,8 +131,20 @@ def create_deep_db_agents(
         )
         ```
     """
+    # Inject the same backend into the tool closures and into the agent, so materialized
+    # files land in the agent's filesystem. Default to an ephemeral StateBackend when the
+    # caller does not provide one, matching create_deep_agent's own default.
+    backend = kwargs.get("backend") or StateBackend()
+    kwargs["backend"] = backend
+
     db_tools, prompt = _build_dialect_parts(
-        db_url, credential, system, guardrails, materialize_enable=True, metrics=metrics
+        db_url,
+        credential,
+        system,
+        guardrails,
+        materialize_enable=True,
+        backend=backend,
+        metrics=metrics,
     )
     user_tools = kwargs.pop("tools", []) or []
 
@@ -189,9 +210,16 @@ def create_db_agents(
         ```
     """
     # Unlike create_deep_db_agents, materialization tools stay excluded: the plain
-    # LangChain agent has no deepagents filesystem/backend to save them to.
+    # LangChain agent has no deepagents filesystem/backend to save them to, so backend
+    # is None (any file-writing tool would report that no backend is configured).
     db_tools, prompt = _build_dialect_parts(
-        db_url, credential, system, guardrails, materialize_enable=False, metrics=metrics
+        db_url,
+        credential,
+        system,
+        guardrails,
+        materialize_enable=False,
+        backend=None,
+        metrics=metrics,
     )
 
     user_tools = kwargs.pop("tools", []) or []
@@ -255,6 +283,11 @@ def create_deep_db_multi_agents(
     """
     if not db_agents:
         raise InvalidMultiAgentConfigError("db_agents must not be empty.")
+
+    # The orchestrator owns no DB tools, but it is itself a Deep Agent with a filesystem:
+    # default its backend to an ephemeral StateBackend when the caller omits one, so its
+    # own file tools have somewhere to write.
+    kwargs["backend"] = kwargs.get("backend") or StateBackend()
 
     subagents: list[CompiledSubAgent] = []
     roster_lines: list[str] = []

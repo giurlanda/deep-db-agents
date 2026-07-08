@@ -67,6 +67,23 @@ def test_factory_merges_user_tools(captured):
     assert sentinel in captured["tools"]
 
 
+def test_factory_defaults_backend_to_state_backend(captured):
+    from deepagents.backends.state import StateBackend
+
+    create_deep_db_agents("mysql://localhost:3306", {"user": "u"})
+    # A StateBackend is created by default and forwarded to create_deep_agent.
+    assert isinstance(captured["backend"], StateBackend)
+
+
+def test_factory_forwards_provided_backend_to_tools_and_agent(captured):
+    from deepagents.backends.state import StateBackend
+
+    backend = StateBackend()
+    create_deep_db_agents("mysql://localhost:3306", {"user": "u"}, backend=backend)
+    # The same instance reaches the agent (so its filesystem is where tools write).
+    assert captured["backend"] is backend
+
+
 def test_factory_unsupported_scheme(captured):
     with pytest.raises(UnsupportedSchemeError):
         create_deep_db_agents("oracle://host:1521", {})
@@ -81,7 +98,7 @@ def test_factory_stub_dialect_raises_not_implemented(captured):
         def system_prompt(self) -> str:
             return ""
 
-        def build_tools(self, conn, guardrails, materialize_enable=False):
+        def build_tools(self, conn, guardrails, materialize_enable=False, backend=None):
             raise NotImplementedError
 
     try:
@@ -110,6 +127,16 @@ def test_multi_agent_wraps_db_agents_as_compiled_subagents(captured):
     assert subagents["crm"]["runnable"] is crm
     # I kwargs (model, ...) sono inoltrati a create_deep_agent.
     assert captured["model"] == "claude-sonnet-4-5-20250929"
+
+
+def test_multi_agent_defaults_backend_to_state_backend(captured):
+    from deepagents.backends.state import StateBackend
+
+    create_deep_db_multi_agents(
+        {"sales": {"description": "DB ordini su Postgres", "agent": FakeAgent()}},
+    )
+    # The orchestrator owns no DB tools, but its own filesystem gets a default backend.
+    assert isinstance(captured["backend"], StateBackend)
 
 
 def test_multi_agent_prompt_has_orchestrator_roster_and_system(captured):

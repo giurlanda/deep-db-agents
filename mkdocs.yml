@@ -28,7 +28,6 @@ nav:
       - Factory: reference/factory.md
       - Connection: reference/connection.md
       - Registry: reference/registry.md
-      - Backend Registry: reference/backend_registry.md
       - Guardrails: reference/guardrails.md
       - Observability: reference/observability.md
       - Pooling: reference/pooling.md

@@ -16,15 +16,16 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, nullcontext
 from typing import Any
 
+from deepagents.backends.protocol import BackendProtocol
 from langchain.tools import BaseTool, ToolRuntime, tool
+from langgraph.types import Command
 
-from ..backend_registry import BERegistry
 from ..base import DbDialect
 from ..connection import ConnectionConfig
 from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
 from ..guardrails import GuardrailConfig, SessionBudget
 from ..query_errors import format_estimate_block, format_query_error
-from ..workspace import materialize_result
+from ..workspace import materialize_result, write_command
 
 # Simple SQL identifier (table/column). Intentionally restrictive.
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
@@ -261,6 +262,7 @@ class SqlDialect(DbDialect):
         conn: ConnectionConfig,
         guardrails: GuardrailConfig,
         materialize_enable: bool = False,
+        backend: BackendProtocol | None = None,
     ) -> Sequence[BaseTool]:
         """Builds the LangChain tools exposed to the agent for this SQL dialect.
 
@@ -269,6 +271,8 @@ class SqlDialect(DbDialect):
             guardrails: Guardrail configuration (limits, timeout, allowed statements, budget)
                 enforced by every tool.
             materialize_enable: Whether to also expose the ``materialize_query`` tool.
+            backend: Filesystem backend injected into ``materialize_query``'s closure; when
+                ``None`` the tool reports that no backend is configured.
 
         Returns:
             The sequence of tools: ``list_tables``, ``describe_table``, ``count_rows``,
@@ -384,17 +388,15 @@ class SqlDialect(DbDialect):
         @tool
         def materialize_query(
             runtime: ToolRuntime, sql: str, fmt: str = "csv", filename: str | None = None
-        ) -> str:
+        ) -> Command | str:
             """Runs a SELECT and saves the entire result to file (Parquet/CSV).
 
             Returns ONLY metadata: file path, columns, preview and statistics.
             Use this tool when the data is needed for analysis or charts but is too much to
             read in chat. The maximum LIMIT still applies as a safety ceiling.
             """
-            ber = BERegistry()
-            be_uuid = runtime.config.get("configurable", {}).get("be_uuid")
-            if be_uuid is None or (be := ber.get(be_uuid)) is None:
-                return "Error: cannot use this tool, backend missing."
+            if backend is None:
+                return "Cannot write to file: no filesystem backend is configured."
             try:
                 stmt = _ensure_single_select(sql, guardrails.allowed_statements)
                 capped = f"SELECT * FROM ({stmt}) AS _q LIMIT {guardrails.hard_max_rows}"
@@ -412,8 +414,8 @@ class SqlDialect(DbDialect):
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=sql)
             budget.charge(len(rows))
-            result = materialize_result(cols, rows, fmt=fmt, filename=filename, backend=be)
-            return result.to_summary()
+            result = materialize_result(cols, rows, fmt=fmt, filename=filename, backend=backend)
+            return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tool_list = [list_tables, describe_table, count_rows, sample_rows, run_query]
         if materialize_enable:

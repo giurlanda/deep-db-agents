@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from deepagents.backends.protocol import BackendProtocol
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
 
 @dataclass
@@ -30,6 +32,9 @@ class MaterializedResult:
         preview: The first few rows, as a list of ``{column: value}`` dicts.
         stats: Per-column numeric statistics (``min``/``max``/``mean``), only for
             columns containing numeric values.
+        files_update: State update returned by a ``StateBackend`` write (the files the
+            agent must apply to its graph state), or ``None`` for external backends that
+            persist directly (``FilesystemBackend``/``StoreBackend``).
     """
 
     path: str
@@ -38,6 +43,7 @@ class MaterializedResult:
     columns: list[str]
     preview: list[dict[str, Any]]
     stats: dict[str, dict[str, float]]
+    files_update: dict[str, Any] | None = None
 
     def to_summary(self) -> str:
         """Build a compact textual summary to return to the agent.
@@ -135,6 +141,8 @@ def materialize_result(
         responses = backend.upload_files([(filename, buf.getvalue())])
         if responses and responses[0].error:
             raise OSError(f"Failed to write {filename!r}: {responses[0].error}")
+        # upload_files returns no state update; StateBackend applies it internally.
+        files_update = None
     elif fmt == "csv":
         # CSV is text: build it in memory and write it via write().
         buf = io.StringIO()
@@ -144,6 +152,9 @@ def materialize_result(
         result = backend.write(filename, buf.getvalue())
         if result.error:
             raise OSError(f"Failed to write {filename!r}: {result.error}")
+        # StateBackend reports the files to apply to the agent's state; external
+        # backends (Filesystem/Store) persist directly and return None here.
+        files_update = getattr(result, "files_update", None)
     else:
         raise ValueError(f"Unsupported format: {fmt!r}. Use 'parquet' or 'csv'.")
 
@@ -155,4 +166,29 @@ def materialize_result(
         columns=columns,
         preview=preview,
         stats=_numeric_stats(columns, rows),
+        files_update=files_update,
     )
+
+
+def write_command(
+    message: str, tool_call_id: str | None, files_update: dict[str, Any] | None
+) -> Command:
+    """Wrap a tool's file-write result in a ``Command`` for the agent.
+
+    Returns a ``Command`` carrying the tool message plus, when a ``StateBackend`` produced
+    a ``files_update``, the ``files`` state update the agent must apply. External backends
+    (Filesystem/Store) persist directly, so ``files_update`` is ``None`` and no ``files``
+    key is added.
+
+    Args:
+        message: Textual summary returned to the agent as the tool result.
+        tool_call_id: Identifier of the originating tool call (from ``ToolRuntime``).
+        files_update: Files to apply to the agent state, or ``None`` for external backends.
+
+    Returns:
+        Command: The state update wrapping the tool message and any file updates.
+    """
+    update: dict[str, Any] = {"messages": [ToolMessage(content=message, tool_call_id=tool_call_id)]}
+    if files_update:
+        update["files"] = files_update
+    return Command(update=update)
