@@ -14,6 +14,12 @@ generico + uno specifico, e delega a `create_deep_agent` / `create_agent`.
 Database supportati: MySQL, MariaDB, Postgres, MongoDB, Neo4j, SQLite, DuckDB, Elasticsearch,
 OpenSearch.
 
+## GitHub repository
+
+Esegui i commit in lingua inglese con commenti sintetici e concisi.
+
+Apri una pull request seguendo il template PULL_REQUEST_TEMPLATE.md e lincando sempre l'issue collegata.
+
 ## Comandi
 
 Il progetto usa **uv**. Prefissa i comandi con `uv run`.
