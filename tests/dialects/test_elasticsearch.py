@@ -199,6 +199,36 @@ def test_aggregate_materializes_large_output_with_backend(monkeypatch):
     assert "by_title" in saved and "buckets" in saved
 
 
+def test_materialize_query_bounded_by_bytes(monkeypatch):
+    from types import SimpleNamespace
+
+    from deepagents.backends.protocol import BackendProtocol, WriteResult
+    from langgraph.types import Command
+
+    class RecordingBackend(BackendProtocol):
+        def __init__(self):
+            self.written: dict[str, str] = {}
+
+        def write(self, path, content):
+            self.written[path] = content
+            return WriteResult(path=path)
+
+    hits = [
+        {"_id": str(i), "_index": "sakila1", "_source": {"title": "x" * 20}} for i in range(1000)
+    ]
+    backend = RecordingBackend()
+    tools = _make(
+        monkeypatch, hits, guardrails=GuardrailConfig(max_materialized_bytes=300), backend=backend
+    )
+    out = tools["materialize_query"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"), index="sakila1", filename="out.csv"
+    )
+    assert isinstance(out, Command)
+    message = out.update["messages"][0].content
+    assert "INCOMPLETE" in message
+    assert len(backend.written["out.csv"].encode("utf-8")) <= 300
+
+
 def test_aggregate_requires_non_empty_aggs(monkeypatch):
     tools = _make(monkeypatch, [])
     out = _invoke_aggregate(tools["aggregate"], aggs="")

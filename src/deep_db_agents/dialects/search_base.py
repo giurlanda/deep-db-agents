@@ -485,7 +485,10 @@ class SearchDialect(DbDialect):
             """Runs a Query DSL search and saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: path, columns, preview and statistics. Use it for analysis
-            or charts on large volumes. Nested values are serialized.
+            or charts on large volumes. Nested values are serialized. The write is bounded by
+            a maximum file size (rows past the ceiling are dropped and the response warns the
+            file is incomplete); the number of documents fetched stays within the engine's
+            result window.
             """
             if backend is None:
                 return "Cannot write to file: no filesystem backend is configured."
@@ -496,6 +499,8 @@ class SearchDialect(DbDialect):
                 else:
                     q = parse_query(query, what="query")
                 with self._client(conn, guardrails) as client:
+                    # ``size`` stays within the engine result window (Elasticsearch/OpenSearch
+                    # reject deep windows); the file size, not the row count, is the guardrail.
                     res = client.search(
                         index=target,
                         body={"query": q, "size": guardrails.hard_max_rows},
@@ -508,9 +513,16 @@ class SearchDialect(DbDialect):
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=str(query), what="search")
             hits = res.get("hits", {}).get("hits", [])
-            budget.charge(len(hits))
             columns, rows = hits_to_table(hits)
-            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=backend)
+            result = materialize_result(
+                columns,
+                rows,
+                backend=backend,
+                fmt=fmt,
+                filename=filename,
+                max_bytes=guardrails.max_materialized_bytes,
+            )
+            budget.charge(result.row_count)
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [
