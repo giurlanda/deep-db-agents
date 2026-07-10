@@ -150,7 +150,7 @@ def test_materialize_query_with_backend_writes_and_returns_command(make_dialect)
     assert "out.csv" in message
     assert "2 rows saved" in message
     # I dati completi sono su file, non nel contesto.
-    assert backend.written["out.csv"].splitlines()[0] == "id,name"
+    assert backend.written["/out.csv"].splitlines()[0] == "id,name"
 
 
 def test_materialize_query_is_bounded_by_bytes_not_hard_max_rows(make_dialect):
@@ -181,7 +181,7 @@ def test_materialize_query_is_bounded_by_bytes_not_hard_max_rows(make_dialect):
     assert isinstance(out, Command)
     message = out.update["messages"][0].content
     assert "INCOMPLETE" in message
-    written = backend.written["out.csv"]
+    written = backend.written["/out.csv"]
     assert len(written.encode("utf-8")) <= 300
     # La query dati viene eseguita senza il cap hard_max_rows tipico di run_query.
     data_stmt = [sql for sql, _ in cursor.executed if "ordini" in sql][0]

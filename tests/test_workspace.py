@@ -22,8 +22,8 @@ def test_materialize_defaults_to_csv_without_analysis_extra():
     assert result.fmt == "csv"
     assert result.row_count == 2
     assert result.truncated is False
-    assert "out.csv" in backend.written
-    assert backend.written["out.csv"].splitlines()[0] == "a,b"
+    assert "/out.csv" in backend.written
+    assert backend.written["/out.csv"].splitlines()[0] == "a,b"
 
 
 def test_materialize_stops_at_byte_limit_and_flags_truncation():
@@ -34,7 +34,7 @@ def test_materialize_stops_at_byte_limit_and_flags_truncation():
     result = materialize_result(
         ["id", "payload"], rows, backend=backend, filename="big.csv", max_bytes=200
     )
-    written = backend.written["big.csv"]
+    written = backend.written["/big.csv"]
     assert result.truncated is True
     assert 0 < result.row_count < 1000
     # Il file resta sotto il limite imposto.
