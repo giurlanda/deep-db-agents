@@ -21,7 +21,7 @@ from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
 from ...query_errors import format_estimate_block, format_query_error
 from ...registry import register
-from ...workspace import materialize_result, write_command
+from ...workspace import json_bytes, materialize_result, take_within_bytes, write_command
 from . import tools
 from .prompt import MONGODB_SYSTEM_PROMPT
 
@@ -247,7 +247,9 @@ class MongoDBDialect(DbDialect):
             saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: path, columns, preview and statistics. Use it for analysis
-            or charts on large volumes. Nested values are serialized.
+            or charts on large volumes. Nested values are serialized. Instead of the row
+            limit, the write is bounded by a maximum file size: documents are saved until that
+            ceiling is reached and the response warns if the file ends up incomplete.
             """
             if backend is None:
                 return "Cannot write to file: no filesystem backend is configured."
@@ -258,18 +260,30 @@ class MongoDBDialect(DbDialect):
                 else:
                     pipl = tools.parse_json(pipeline, what="pipeline") or []
                 stages = tools.ensure_read_only_pipeline(pipl)
-                capped = [*stages, {"$limit": guardrails.hard_max_rows}]
                 with self._db(conn, guardrails) as db:
-                    docs = list(db[collection].aggregate(capped, maxTimeMS=max_time_ms))
+                    # Pull the lazy cursor only up to the byte budget so memory stays bounded;
+                    # materialize_result then enforces the same ceiling on the written file.
+                    cursor = db[collection].aggregate(stages, maxTimeMS=max_time_ms)
+                    docs, fetch_truncated = take_within_bytes(
+                        cursor, json_bytes, guardrails.max_materialized_bytes
+                    )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error → feedback to the agent
                 return format_query_error(exc, query=str(pipeline), what="query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
                 return format_query_error(exc, query=str(pipeline), what="pipeline")
-            budget.charge(len(docs))
             columns, rows = tools.docs_to_table(docs)
-            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=backend)
+            result = materialize_result(
+                columns,
+                rows,
+                backend=backend,
+                fmt=fmt,
+                filename=filename,
+                max_bytes=guardrails.max_materialized_bytes,
+            )
+            result.truncated = result.truncated or fetch_truncated
+            budget.charge(result.row_count)
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [

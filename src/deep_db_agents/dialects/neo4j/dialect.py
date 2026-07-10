@@ -23,7 +23,7 @@ from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
 from ...query_errors import format_estimate_block, format_query_error
 from ...registry import register
-from ...workspace import materialize_result, write_command
+from ...workspace import json_bytes, materialize_result, write_command
 from . import tools
 from .prompt import NEO4J_SYSTEM_PROMPT
 
@@ -49,6 +49,38 @@ def _collect(tx, cypher: str, limit: int) -> tuple[list[str], list[dict], bool]:
             break
         records.append(record.data())
     return keys, records, more
+
+
+def _collect_within_bytes(
+    tx, cypher: str, max_bytes: int | None
+) -> tuple[list[str], list[dict], bool]:
+    """Runs the Cypher query and collects records lazily up to a byte budget.
+
+    Streams the result and stops before the accumulated records (measured as JSON) would
+    exceed ``max_bytes``, so materialization keeps both the file and memory bounded.
+
+    Args:
+        tx: The active Neo4j transaction.
+        cypher: The Cypher statement to run.
+        max_bytes: Maximum cumulative JSON size of the collected records, or ``None`` for
+            no limit.
+
+    Returns:
+        A tuple (result keys, collected records, whether more records were available).
+    """
+    result = tx.run(cypher)
+    keys = list(result.keys())
+    records: list[dict] = []
+    total = 0
+    for record in result:
+        data = record.data()
+        if max_bytes is not None:
+            size = json_bytes(data)
+            if total + size > max_bytes:
+                return keys, records, True
+            total += size
+        records.append(data)
+    return keys, records, False
 
 
 def _estimate(tx, cypher: str) -> int:
@@ -221,24 +253,40 @@ class Neo4jDialect(DbDialect):
             """Runs a read-only Cypher query and saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: path, columns, preview and statistics. Use it for analysis
-            or charts on large volumes. Nodes/relationships are serialized.
+            or charts on large volumes. Nodes/relationships are serialized. Instead of the row
+            limit, the write is bounded by a maximum file size: records are saved until that
+            ceiling is reached and the response warns if the file ends up incomplete.
             """
             if backend is None:
                 return "Cannot write to file: no filesystem backend is configured."
             try:
                 stmt = tools.ensure_read_only(cypher)
-                keys, records, _ = self._read(
-                    conn, guardrails, _collect, stmt, guardrails.hard_max_rows
+                est = self._read(conn, guardrails, _estimate, stmt)
+                guardrails.check_estimate(est, metrics)
+                # Collect records lazily up to the byte budget (bounds memory); the estimate
+                # guardrail above blocks queries whose result set is estimated too large.
+                keys, records, fetch_truncated = self._read(
+                    conn, guardrails, _collect_within_bytes, stmt, guardrails.max_materialized_bytes
                 )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error → feedback to the agent
                 return format_query_error(exc, query=cypher, what="cypher")
+            except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high → feedback to the agent
+                return format_estimate_block(exc, what="Cypher query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
                 return format_query_error(exc, query=cypher, what="Cypher query")
-            budget.charge(len(records))
             columns, rows = tools.records_to_table(keys, records)
-            result = materialize_result(columns, rows, fmt=fmt, filename=filename, backend=backend)
+            result = materialize_result(
+                columns,
+                rows,
+                backend=backend,
+                fmt=fmt,
+                filename=filename,
+                max_bytes=guardrails.max_materialized_bytes,
+            )
+            result.truncated = result.truncated or fetch_truncated
+            budget.charge(result.row_count)
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tool_list = [

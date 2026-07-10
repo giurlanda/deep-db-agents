@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-10
+
+### Added
+
+- **`GuardrailConfig.max_materialized_bytes`** (default 10 MiB): a hard cap on the size, in
+  bytes, of a single materialized file. See [#5](https://github.com/giurlanda/deep-db-agents/issues/5).
+
+### Changed
+
+- The materialization tools (`materialize_query`/`materialize_aggregate`/`materialize_cypher`)
+  are now bounded by `max_materialized_bytes` **instead of** `hard_max_rows`. `hard_max_rows`
+  bounds the rows returned into the agent's *context*; materialization writes to *file*, so it is
+  now bounded by file size, letting an agent save datasets far larger than `hard_max_rows`. Rows
+  are streamed and written only while they fit under the byte ceiling; when the write stops early
+  the tool response warns that the file is **incomplete**. `materialize_result` gains a `max_bytes`
+  parameter and a `truncated` flag on `MaterializedResult`. Elasticsearch/OpenSearch stay
+  additionally bound by the engine result window; the Neo4j materialization now also enforces the
+  `EXPLAIN` row-estimate guardrail.
+- `materialize_result` now normalizes a relative `filename` to an absolute path (a leading `/` is
+  prepended), so materialized files are written at the backend filesystem root instead of a
+  path-dependent location.
+
 ## [0.2.0] - 2026-07-08
 
 ### Changed

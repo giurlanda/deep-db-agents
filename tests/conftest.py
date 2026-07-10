@@ -25,6 +25,10 @@ class FakeCursor:
     def fetchall(self) -> list:
         return list(self._rows)
 
+    def fetchmany(self, size: int) -> list:
+        chunk, self._rows = list(self._rows[:size]), list(self._rows[size:])
+        return chunk
+
     def fetchone(self):
         return self._rows[0] if self._rows else None
 

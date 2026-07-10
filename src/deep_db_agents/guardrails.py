@@ -30,6 +30,13 @@ class GuardrailConfig:
         allowed_statements: Whitelist of allowed statement types (only ``SELECT`` by
             default).
         row_budget: Cumulative row budget returned per session (``None`` = unlimited).
+        max_materialized_bytes: Hard cap on the size (in bytes) of a single materialized
+            file. The materialization tools write whole records only while the cumulative
+            size stays below this ceiling and stop before exceeding it, so a file is never
+            larger than this value. Unlike ``hard_max_rows`` (which bounds the rows returned
+            *into the agent's context*), this bounds the data written *to file*, letting the
+            agent materialize datasets far larger than ``hard_max_rows`` without loading them
+            into context.
     """
 
     default_rows: int = 100
@@ -40,6 +47,10 @@ class GuardrailConfig:
     #: Cumulative row budget per session. Finite by default to avoid unbounded chained
     #: extractions; pass ``None`` to explicitly disable it.
     row_budget: int | None = 50_000
+    #: Maximum size (in bytes) of a single materialized file (default 10 MiB). Enforced by the
+    #: materialization tools in place of ``hard_max_rows``, so large results can be saved to
+    #: file while still being bounded.
+    max_materialized_bytes: int = 10_485_760
 
     def clamp_limit(self, requested: int | None) -> int:
         """Compute the effective LIMIT to apply, capped by ``hard_max_rows``.

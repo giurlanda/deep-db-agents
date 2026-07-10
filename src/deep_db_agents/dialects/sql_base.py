@@ -57,6 +57,29 @@ _WORD_RE = re.compile(r"[A-Za-z_]+")
 # last safety net against network stalls.
 NETWORK_TIMEOUT_GRACE_S = 5
 
+# Rows fetched per round-trip when streaming a result for materialization.
+_FETCH_BATCH_SIZE = 1000
+
+
+def _iter_rows(cursor: Any, batch_size: int = _FETCH_BATCH_SIZE) -> Iterator[Sequence[Any]]:
+    """Yields rows from a DB-API cursor lazily, one ``fetchmany`` batch at a time.
+
+    Lets the materialization write consume only as many rows as fit the byte budget
+    instead of pulling the whole result set into memory with ``fetchall``.
+
+    Args:
+        cursor: An executed DB-API cursor to stream rows from.
+        batch_size: Number of rows fetched per round-trip.
+
+    Yields:
+        The rows of the result set, in order.
+    """
+    while True:
+        chunk = cursor.fetchmany(batch_size)
+        if not chunk:
+            break
+        yield from chunk
+
 
 def _ensure_single_select(sql: str, allowed: frozenset[str]) -> str:
     """Validates that ``sql`` is a single allowed statement (usually a SELECT).
@@ -389,22 +412,32 @@ class SqlDialect(DbDialect):
         def materialize_query(
             runtime: ToolRuntime, sql: str, fmt: str = "csv", filename: str | None = None
         ) -> Command | str:
-            """Runs a SELECT and saves the entire result to file (Parquet/CSV).
+            """Runs a SELECT and saves the result to file (Parquet/CSV).
 
             Returns ONLY metadata: file path, columns, preview and statistics.
             Use this tool when the data is needed for analysis or charts but is too much to
-            read in chat. The maximum LIMIT still applies as a safety ceiling.
+            read in chat. Instead of the row LIMIT, the write is bounded by a maximum file
+            size: rows are saved until that ceiling is reached, and the response warns if the
+            file ends up incomplete.
             """
             if backend is None:
                 return "Cannot write to file: no filesystem backend is configured."
             try:
                 stmt = _ensure_single_select(sql, guardrails.allowed_statements)
-                capped = f"SELECT * FROM ({stmt}) AS _q LIMIT {guardrails.hard_max_rows}"
                 with self._cursor(conn, guardrails) as cur:
                     guardrails.check_estimate(self._estimate_rows(cur, stmt), metrics)
-                    cur.execute(capped)
+                    cur.execute(stmt)
                     cols = self._columns(cur)
-                    rows = cur.fetchall()
+                    # Stream rows lazily and stop at the byte budget, so neither the file nor
+                    # memory exceed the limit (the estimate guardrail bounds the fetch too).
+                    result = materialize_result(
+                        cols,
+                        _iter_rows(cur),
+                        backend=backend,
+                        fmt=fmt,
+                        filename=filename,
+                        max_bytes=guardrails.max_materialized_bytes,
+                    )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=sql, what="query")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
@@ -413,8 +446,7 @@ class SqlDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=sql)
-            budget.charge(len(rows))
-            result = materialize_result(cols, rows, fmt=fmt, filename=filename, backend=backend)
+            budget.charge(result.row_count)
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tool_list = [list_tables, describe_table, count_rows, sample_rows, run_query]

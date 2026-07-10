@@ -18,6 +18,12 @@ def test_clamp_limit_caps_at_hard_max():
     assert g.clamp_limit(99999) == 1000
 
 
+def test_max_materialized_bytes_defaults_to_10_mib():
+    # Il limite in byte dei file materializzati è finito di default (10 MiB) e configurabile.
+    assert GuardrailConfig().max_materialized_bytes == 10 * 1024 * 1024
+    assert GuardrailConfig(max_materialized_bytes=1024).max_materialized_bytes == 1024
+
+
 def test_check_estimate_blocks_over_threshold():
     g = GuardrailConfig(explain_row_threshold=1000)
     g.check_estimate(999)  # ok

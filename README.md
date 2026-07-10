@@ -150,6 +150,14 @@ Guardrails are enforced by the tool wrapper (not by the agent): a non-bypassable
 per-session row/token budget. Large datasets are **materialized to file** (Parquet/CSV), and
 only metadata and previews are passed back to the agent.
 
+The `LIMIT`/`hard_max_rows` ceiling bounds the rows returned **into the agent's context**; the
+`materialize_*` tools instead write to file, so they are bounded by `max_materialized_bytes` (the
+maximum size, in bytes, of a materialized file — 10 MiB by default) rather than by `hard_max_rows`.
+Rows are streamed and written only while they fit under that ceiling; if the write stops early the
+tool response warns that the file is **incomplete**, so the agent can aggregate or filter to fit it.
+This lets an agent materialize datasets far larger than `hard_max_rows` without loading them into
+context.
+
 `query_timeout_s` is enforced as a **client-side** timeout in addition to the server-side one,
 so a query (or socket) that hangs gets interrupted instead of blocking the agent — especially
 when the model issues several tool calls in parallel. For SQLite/DuckDB, which lack a native

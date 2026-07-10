@@ -133,6 +133,54 @@ def test_count_nodes_escapes_label(monkeypatch):
     assert "`Lab``el`" in seen["cypher"]  # backtick raddoppiato dentro l'identificatore quotato
 
 
+def test_materialize_cypher_bounded_by_bytes(monkeypatch):
+    from types import SimpleNamespace
+
+    from deepagents.backends.protocol import BackendProtocol, WriteResult
+    from langgraph.types import Command
+
+    class RecordingBackend(BackendProtocol):
+        def __init__(self):
+            self.written: dict[str, str] = {}
+
+        def write(self, path, content):
+            self.written[path] = content
+            return WriteResult(path=path)
+
+    records = [FakeRecord({"n": i, "payload": "x" * 20}) for i in range(2000)]
+
+    def on_run(cypher):
+        if cypher.upper().startswith("EXPLAIN"):
+            return _FakeExplainResult(10)  # sotto soglia: non blocca
+        return FakeResult(["n", "payload"], records)
+
+    dialect = Neo4jDialect()
+    tx = FakeTx(on_run)
+
+    @contextmanager
+    def fake_session(conn, guardrails=None):  # noqa: ARG001
+        yield FakeSession(tx)
+
+    monkeypatch.setattr(dialect, "_session", fake_session)
+    backend = RecordingBackend()
+    built = dialect.build_tools(
+        CONN,
+        GuardrailConfig(max_materialized_bytes=300),
+        materialize_enable=True,
+        backend=backend,
+    )
+    tools = {t.name: t for t in built}
+    out = tools["materialize_cypher"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"),
+        cypher="MATCH (n) RETURN n",
+        filename="out.csv",
+    )
+    assert isinstance(out, Command)
+    message = out.update["messages"][0].content
+    assert "INCOMPLETE" in message
+    assert len(backend.written["out.csv"].encode("utf-8")) <= 300
+
+
 def test_materialize_cypher_gated_and_unique():
     # materialize_cypher è esposto solo con materialize_enable=True, senza duplicati:
     # regressione sul doppio append (una volta nella lista base, una nel branch).

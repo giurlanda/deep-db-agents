@@ -26,7 +26,8 @@ consuming as little context as possible.
 - `sample_rows`: small preview of a table.
 - `run_query`: runs a SELECT with forced LIMIT and pagination.
 - `materialize_query`: saves a large result to file (Parquet/CSV) and returns only metadata, \
-  preview and statistics — use it for analysis/charts on large volumes.
+  preview and statistics — use it for analysis/charts on large volumes. The write is bounded by a \
+  maximum file size, so the file may be reported as incomplete: aggregate or filter to fit it.
 
 Always proceed step by step: explore the schema, count, then extract or aggregate.
 """

@@ -159,6 +159,49 @@ def test_aggregate_returns_feedback_on_driver_error(monkeypatch):
     assert "pipeline" in out.lower()
 
 
+def test_materialize_aggregate_bounded_by_bytes(monkeypatch):
+    from types import SimpleNamespace
+
+    from deepagents.backends.protocol import BackendProtocol, WriteResult
+    from langgraph.types import Command
+
+    class RecordingBackend(BackendProtocol):
+        def __init__(self):
+            self.written: dict[str, str] = {}
+
+        def write(self, path, content):
+            self.written[path] = content
+            return WriteResult(path=path)
+
+    dialect = MongoDBDialect()
+    docs = [{"_id": i, "payload": "x" * 20} for i in range(2000)]
+    db = FakeDB({"ordini": FakeCollection(docs)})
+
+    @contextmanager
+    def fake_db(conn, guardrails=None):  # noqa: ARG001
+        yield db
+
+    monkeypatch.setattr(dialect, "_db", fake_db)
+    backend = RecordingBackend()
+    built = dialect.build_tools(
+        CONN,
+        GuardrailConfig(max_materialized_bytes=300),
+        materialize_enable=True,
+        backend=backend,
+    )
+    tools = {t.name: t for t in built}
+    out = tools["materialize_aggregate"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"),
+        collection="ordini",
+        pipeline="[]",
+        filename="out.csv",
+    )
+    assert isinstance(out, Command)
+    message = out.update["messages"][0].content
+    assert "INCOMPLETE" in message
+    assert len(backend.written["out.csv"].encode("utf-8")) <= 300
+
+
 def test_missing_database_raises(monkeypatch):
     dialect = MongoDBDialect()
     conn = ConnectionConfig(scheme="mongodb", host="localhost", port=27017, credential={})

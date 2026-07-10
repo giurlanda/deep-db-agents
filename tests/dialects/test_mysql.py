@@ -151,3 +151,39 @@ def test_materialize_query_with_backend_writes_and_returns_command(make_dialect)
     assert "2 rows saved" in message
     # I dati completi sono su file, non nel contesto.
     assert backend.written["out.csv"].splitlines()[0] == "id,name"
+
+
+def test_materialize_query_is_bounded_by_bytes_not_hard_max_rows(make_dialect):
+    from deepagents.backends.protocol import BackendProtocol, WriteResult
+    from langgraph.types import Command
+
+    class RecordingBackend(BackendProtocol):
+        def __init__(self):
+            self.written: dict[str, str] = {}
+
+        def write(self, path, content):
+            self.written[path] = content
+            return WriteResult(path=path)
+
+    # Molte più righe di hard_max_rows, ma un limite in byte piccolo: il file viene troncato
+    # su base dimensione, non sul numero di righe, e l'agente viene avvisato.
+    data_rows = [(i, "payload") for i in range(5000)]
+    backend = RecordingBackend()
+    guardrails = GuardrailConfig(hard_max_rows=10, max_materialized_bytes=300)
+    tools, cursor = _materialize_tools(
+        make_dialect, _handler(data_rows=data_rows), backend=backend, guardrails=guardrails
+    )
+    out = tools["materialize_query"].func(
+        runtime=SimpleNamespace(tool_call_id="call-1"),
+        sql="SELECT * FROM ordini",
+        filename="out.csv",
+    )
+    assert isinstance(out, Command)
+    message = out.update["messages"][0].content
+    assert "INCOMPLETE" in message
+    written = backend.written["out.csv"]
+    assert len(written.encode("utf-8")) <= 300
+    # La query dati viene eseguita senza il cap hard_max_rows tipico di run_query.
+    data_stmt = [sql for sql, _ in cursor.executed if "ordini" in sql][0]
+    assert "hard_max_rows" not in data_stmt
+    assert "LIMIT 10" not in data_stmt
