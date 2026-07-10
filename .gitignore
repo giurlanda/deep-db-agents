@@ -43,3 +43,6 @@ workspace/
 
 # Manual test scripts against real databases
 snippets/
+
+# codebase
+graphify-out

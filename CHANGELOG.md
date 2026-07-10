@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter and a `truncated` flag on `MaterializedResult`. Elasticsearch/OpenSearch stay
   additionally bound by the engine result window; the Neo4j materialization now also enforces the
   `EXPLAIN` row-estimate guardrail.
+- `materialize_result` now normalizes a relative `filename` to an absolute path (a leading `/` is
+  prepended), so materialized files are written at the backend filesystem root instead of a
+  path-dependent location.
 
 ## [0.2.0] - 2026-07-08
 

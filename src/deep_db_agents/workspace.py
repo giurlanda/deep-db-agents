@@ -194,6 +194,8 @@ def materialize_result(
 
     if filename is None:
         filename = f"result_{uuid.uuid4().hex[:8]}.{fmt}"
+    elif not filename.startswith("/"):
+        filename = "/" + filename
 
     # Serialize row by row to CSV, tracking the cumulative UTF-8 byte size, and stop before
     # exceeding max_bytes so only whole records within the limit are written. CSV rows are
