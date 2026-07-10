@@ -199,7 +199,7 @@ def test_materialize_aggregate_bounded_by_bytes(monkeypatch):
     assert isinstance(out, Command)
     message = out.update["messages"][0].content
     assert "INCOMPLETE" in message
-    assert len(backend.written["out.csv"].encode("utf-8")) <= 300
+    assert len(backend.written["/out.csv"].encode("utf-8")) <= 300
 
 
 def test_missing_database_raises(monkeypatch):
