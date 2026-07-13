@@ -27,10 +27,15 @@ from langgraph.types import Command
 
 from ..base import DbDialect
 from ..connection import ConnectionConfig
-from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
+from ..exceptions import (
+    DeepDbAgentError,
+    EstimateExceededError,
+    QueryNotAllowedError,
+    RowBudgetExceededError,
+)
 from ..guardrails import GuardrailConfig, SessionBudget
 from ..pooling import LazyClient
-from ..query_errors import format_estimate_block, format_query_error
+from ..query_errors import format_budget_block, format_estimate_block, format_query_error
 from ..tabular import docs_to_table
 from ..workspace import materialize_result, write_command
 
@@ -334,7 +339,10 @@ class SearchDialect(DbDialect):
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=target, what="search")
             docs = _hits_to_docs(res.get("hits", {}).get("hits", []))
-            budget.charge(len(docs))
+            try:
+                budget.charge(len(docs))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="search")
             return f"Sample of {target} ({len(docs)} documents): {docs}"
 
         @tool
@@ -367,7 +375,10 @@ class SearchDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=str(query), what="search")
-            budget.charge(len(hits))
+            try:
+                budget.charge(len(hits))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="search")
             docs = _hits_to_docs(hits)
             more = (
                 f" More documents available: ask for page={page + 1}." if len(hits) == limit else ""
@@ -399,7 +410,10 @@ class SearchDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=query_string, what="query_string search")
-            budget.charge(len(hits))
+            try:
+                budget.charge(len(hits))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="query_string search")
             docs = _hits_to_docs(hits)
             more = (
                 f" More documents available: ask for page={page + 1}." if len(hits) == limit else ""
@@ -522,7 +536,10 @@ class SearchDialect(DbDialect):
                 filename=filename,
                 max_bytes=guardrails.max_materialized_bytes,
             )
-            budget.charge(result.row_count)
+            try:
+                budget.charge(result.row_count)
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="search")
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [

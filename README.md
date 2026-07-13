@@ -175,8 +175,10 @@ lets the model self-correct within the same conversation instead of failing the 
 The same applies to whitelist/scope violations (e.g. a write statement, or an index outside the
 configured `credential["index"]` pattern on Elasticsearch/OpenSearch): the operation is blocked
 *before* reaching the driver, but reported back as corrective feedback rather than a hard error.
-Only the session-level guardrails (row budget exhausted, EXPLAIN row-estimate threshold exceeded)
-remain hard exceptions — those signal a limit the agent must not be allowed to work around.
+The session-level guardrails behave the same way: an EXPLAIN row-estimate over the threshold
+(`format_estimate_block`) and an exhausted per-session row budget (`format_budget_block`) are
+returned as feedback too — the query is not executed or its result not returned, and the agent is
+told to aggregate, refine its filters, or start a new session instead of interrupting the run.
 
 ## Materializing results: the filesystem backend
 

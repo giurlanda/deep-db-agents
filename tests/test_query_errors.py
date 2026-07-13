@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from deep_db_agents.connection import ConnectionConfig
-from deep_db_agents.query_errors import format_query_error
+from deep_db_agents.exceptions import RowBudgetExceededError
+from deep_db_agents.query_errors import format_budget_block, format_query_error
 
 
 def test_redacts_dsn_credentials_in_driver_message():
@@ -25,6 +26,15 @@ def test_keeps_non_secret_detail():
     out = format_query_error(exc, query="SELECT foo FROM bar")
     assert "unknown column 'foo'" in out
     assert "SELECT foo FROM bar" in out
+
+
+def test_budget_block_is_actionable_feedback():
+    exc = RowBudgetExceededError("Session row budget exhausted (2/1). Start a new session.")
+    out = format_budget_block(exc, what="query")
+    assert "row budget is exhausted" in out
+    assert "2/1" in out
+    # The message steers the agent to aggregate or reset rather than interrupting the turn.
+    assert "aggregate" in out.lower()
 
 
 def test_connection_config_repr_masks_credentials():
