@@ -16,10 +16,15 @@ from langgraph.types import Command
 
 from ...base import DbDialect
 from ...connection import ConnectionConfig
-from ...exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
+from ...exceptions import (
+    DeepDbAgentError,
+    EstimateExceededError,
+    QueryNotAllowedError,
+    RowBudgetExceededError,
+)
 from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
-from ...query_errors import format_estimate_block, format_query_error
+from ...query_errors import format_budget_block, format_estimate_block, format_query_error
 from ...registry import register
 from ...workspace import json_bytes, materialize_result, take_within_bytes, write_command
 from . import tools
@@ -150,7 +155,10 @@ class MongoDBDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
                 return format_query_error(exc, query=collection, what="collection read")
-            budget.charge(len(docs))
+            try:
+                budget.charge(len(docs))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="collection read")
             return f"Sample of {collection} ({len(docs)} documents): {docs}"
 
         @tool
@@ -200,7 +208,10 @@ class MongoDBDialect(DbDialect):
                 return format_query_error(
                     exc, query=f"filter={filter} projection={projection}", what="find"
                 )
-            budget.charge(len(docs))
+            try:
+                budget.charge(len(docs))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="find")
             more = (
                 f" More documents available: ask for page={page + 1}." if len(docs) == limit else ""
             )
@@ -229,7 +240,10 @@ class MongoDBDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
                 return format_query_error(exc, query=str(pipeline), what="pipeline")
-            budget.charge(len(docs))
+            try:
+                budget.charge(len(docs))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="pipeline")
             return (
                 f"{len(docs)} documents from the aggregation "
                 f"(limit {guardrails.hard_max_rows}).\n{docs}"
@@ -283,7 +297,10 @@ class MongoDBDialect(DbDialect):
                 max_bytes=guardrails.max_materialized_bytes,
             )
             result.truncated = result.truncated or fetch_truncated
-            budget.charge(result.row_count)
+            try:
+                budget.charge(result.row_count)
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="pipeline")
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tools_list = [

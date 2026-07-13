@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .exceptions import EstimateExceededError, GuardrailError
+from .exceptions import EstimateExceededError, RowBudgetExceededError
 from .observability import SessionMetrics, get_logger
 
 _logger = get_logger("guardrails")
@@ -45,8 +45,9 @@ class GuardrailConfig:
     query_timeout_s: int = 30
     allowed_statements: frozenset[str] = frozenset({"SELECT"})
     #: Cumulative row budget per session. Finite by default to avoid unbounded chained
-    #: extractions; pass ``None`` to explicitly disable it.
-    row_budget: int | None = 50_000
+    #: extractions, but generous enough not to exhaust during normal exploration; pass
+    #: ``None`` to explicitly disable it.
+    row_budget: int | None = 10_000_000
     #: Maximum size (in bytes) of a single materialized file (default 10 MiB). Enforced by the
     #: materialization tools in place of ``hard_max_rows``, so large results can be saved to
     #: file while still being bounded.
@@ -118,7 +119,9 @@ class SessionBudget:
             rows: Number of rows just returned, to add to the consumed total.
 
         Raises:
-            GuardrailError: If the cumulative consumed rows exceed ``budget``.
+            RowBudgetExceededError: If the cumulative consumed rows exceed ``budget``. A
+                subclass of ``GuardrailError`` that the query tools reflect back to the agent
+                as corrective feedback instead of interrupting the turn.
         """
         if self.metrics is not None:
             self.metrics.record_query(rows)
@@ -129,7 +132,7 @@ class SessionBudget:
             if self.metrics is not None:
                 self.metrics.record_budget_exhausted()
             _logger.warning("session row budget exhausted: %d/%d", self.consumed, self.budget)
-            raise GuardrailError(
+            raise RowBudgetExceededError(
                 f"Session row budget exhausted "
                 f"({self.consumed:,}/{self.budget:,}). Start a new session or aggregate more."
             )

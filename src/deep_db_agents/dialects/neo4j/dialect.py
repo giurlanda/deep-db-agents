@@ -18,10 +18,15 @@ from langgraph.types import Command
 
 from ...base import DbDialect
 from ...connection import ConnectionConfig
-from ...exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
+from ...exceptions import (
+    DeepDbAgentError,
+    EstimateExceededError,
+    QueryNotAllowedError,
+    RowBudgetExceededError,
+)
 from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
-from ...query_errors import format_estimate_block, format_query_error
+from ...query_errors import format_budget_block, format_estimate_block, format_query_error
 from ...registry import register
 from ...workspace import json_bytes, materialize_result, write_command
 from . import tools
@@ -242,7 +247,10 @@ class Neo4jDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
                 return format_query_error(exc, query=cypher, what="Cypher query")
-            budget.charge(len(records))
+            try:
+                budget.charge(len(records))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="Cypher query")
             extra = " More rows available: add LIMIT/SKIP or refine the query." if more else ""
             return f"{len(records)} rows (limit {limit}).{extra}\ncolumns={keys}\n{records}"
 
@@ -286,7 +294,10 @@ class Neo4jDialect(DbDialect):
                 max_bytes=guardrails.max_materialized_bytes,
             )
             result.truncated = result.truncated or fetch_truncated
-            budget.charge(result.row_count)
+            try:
+                budget.charge(result.row_count)
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted → feedback to the agent
+                return format_budget_block(exc, what="Cypher query")
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tool_list = [

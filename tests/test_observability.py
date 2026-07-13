@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from deep_db_agents.exceptions import EstimateExceededError, GuardrailError
+from deep_db_agents.exceptions import EstimateExceededError, RowBudgetExceededError
 from deep_db_agents.guardrails import GuardrailConfig, SessionBudget
 from deep_db_agents.observability import SessionMetrics, configure_logging
 
@@ -21,7 +21,7 @@ def test_session_budget_records_metrics():
 def test_budget_exhausted_recorded():
     metrics = SessionMetrics()
     budget = SessionBudget(budget=4, metrics=metrics)
-    with pytest.raises(GuardrailError):
+    with pytest.raises(RowBudgetExceededError):
         budget.charge(10)
     assert metrics.budget_exhausted == 1
 

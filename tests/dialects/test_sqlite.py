@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from deep_db_agents.exceptions import GuardrailError, QueryNotAllowedError
+from deep_db_agents.exceptions import QueryNotAllowedError
 from deep_db_agents.guardrails import GuardrailConfig
 from deep_db_agents.url import parse_db_url
 
@@ -123,7 +123,7 @@ def test_run_query_forces_limit(db_tools):
 
 
 def test_query_budget_enforced(db_tools, tmp_path):
-    # Budget di sessione: oltre il tetto deve scattare il guardrail.
+    # Budget di sessione esaurito: il tool non solleva, ma restituisce feedback all'agente.
     from deep_db_agents.connection import ConnectionConfig
     from deep_db_agents.dialects.sqlite import SQLiteDialect
 
@@ -133,5 +133,5 @@ def test_query_budget_enforced(db_tools, tmp_path):
         conn, GuardrailConfig(row_budget=1), materialize_enable=True
     )
     tools = {t.name: t for t in built}
-    with pytest.raises(GuardrailError):
-        tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    out = tools["run_query"].invoke({"sql": "SELECT * FROM ordini"})
+    assert "row budget is exhausted" in out

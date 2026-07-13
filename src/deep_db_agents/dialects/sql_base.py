@@ -22,9 +22,14 @@ from langgraph.types import Command
 
 from ..base import DbDialect
 from ..connection import ConnectionConfig
-from ..exceptions import DeepDbAgentError, EstimateExceededError, QueryNotAllowedError
+from ..exceptions import (
+    DeepDbAgentError,
+    EstimateExceededError,
+    QueryNotAllowedError,
+    RowBudgetExceededError,
+)
 from ..guardrails import GuardrailConfig, SessionBudget
-from ..query_errors import format_estimate_block, format_query_error
+from ..query_errors import format_budget_block, format_estimate_block, format_query_error
 from ..workspace import materialize_result, write_command
 
 # Simple SQL identifier (table/column). Intentionally restrictive.
@@ -372,7 +377,10 @@ class SqlDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=table, what="sample")
-            budget.charge(len(rows))
+            try:
+                budget.charge(len(rows))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="sample")
             data = [dict(zip(cols, r, strict=False)) for r in rows]
             return f"Sample of {table} ({len(data)} rows): {data}"
 
@@ -403,7 +411,10 @@ class SqlDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=sql)
-            budget.charge(len(rows))
+            try:
+                budget.charge(len(rows))
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="query")
             data = [dict(zip(cols, r, strict=False)) for r in rows]
             more = f" More rows available: ask for page={page + 1}." if len(rows) == limit else ""
             return f"{len(rows)} rows (page {page}, page_size {limit}).{more}\n{data}"
@@ -446,7 +457,10 @@ class SqlDialect(DbDialect):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=sql)
-            budget.charge(result.row_count)
+            try:
+                budget.charge(result.row_count)
+            except RowBudgetExceededError as exc:  # noqa: BLE001 - budget exhausted -> feedback to the agent
+                return format_budget_block(exc, what="query")
             return write_command(result.to_summary(), runtime.tool_call_id, result.files_update)
 
         tool_list = [list_tables, describe_table, count_rows, sample_rows, run_query]

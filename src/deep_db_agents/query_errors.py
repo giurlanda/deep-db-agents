@@ -14,15 +14,16 @@ reaching the driver — but the rejection is communicated to the agent as a corr
 message rather than interrupting the turn. The EXPLAIN row-estimate guardrail
 (``EstimateExceededError``) is handled the same way by ``format_estimate_block``: the
 query is **not executed**, but the agent is asked to refine or aggregate and retry. The
-session row budget (``GuardrailError`` from ``SessionBudget``), on the other hand, remains
-a hard exception signaling a limit that must not be bypassed.
+session row budget (``RowBudgetExceededError`` from ``SessionBudget``) is likewise turned
+into feedback by ``format_budget_block``: the query did run, but its result is **not
+returned**, and the agent is asked to aggregate/summarize or start a new session.
 """
 
 from __future__ import annotations
 
 import re
 
-from .exceptions import GuardrailError
+from .exceptions import EstimateExceededError, RowBudgetExceededError
 from .observability import get_logger
 
 _logger = get_logger("query_errors")
@@ -91,7 +92,7 @@ def format_query_error(exc: Exception, *, query: str | None = None, what: str = 
     return "\n".join(lines)
 
 
-def format_estimate_block(exc: GuardrailError, *, what: str = "query") -> str:
+def format_estimate_block(exc: EstimateExceededError, *, what: str = "query") -> str:
     """Format an EXPLAIN row-estimate guardrail block as corrective feedback.
 
     Turns the ``EstimateExceededError`` raised by ``GuardrailConfig.check_estimate`` into
@@ -118,5 +119,37 @@ def format_estimate_block(exc: GuardrailError, *, what: str = "query") -> str:
             f"Detail: {detail}",
             f"Narrow the {what} with more selective filters or aggregate in the database "
             "to reduce the estimated result set, then retry.",
+        ]
+    )
+
+
+def format_budget_block(exc: RowBudgetExceededError, *, what: str = "query") -> str:
+    """Format a session row-budget exhaustion as corrective feedback.
+
+    Turns the ``RowBudgetExceededError`` raised by ``SessionBudget.charge`` into a message
+    the agent can act on: the query did run, but its result is **not returned** because the
+    cumulative session row budget is exhausted, so the agent should aggregate/summarize in
+    the database or start a new session instead of extracting more rows.
+
+    Args:
+        exc: The guardrail exception raised when the budget was exceeded; its message already
+            describes the consumed rows and the budget.
+        what: Label for the blocked construct (``"query"``, ``"search"``, ...), used in the
+            message.
+
+    Returns:
+        str: A message describing the block, suitable for returning to the agent as tool
+        output.
+    """
+    detail = str(exc).strip() or "(no detail provided)"
+    # The block is corrective feedback for the agent, but also an observable event on the
+    # operator side: logged alongside the reflected message.
+    _logger.warning("%s blocked by the session row budget: %s", what, detail)
+    return "\n".join(
+        [
+            f"Warning: the {what} result is NOT returned — the session row budget is exhausted.",
+            f"Detail: {detail}",
+            "Stop extracting rows: aggregate or summarize in the database to reduce volume, "
+            "or start a new session to reset the budget.",
         ]
     )

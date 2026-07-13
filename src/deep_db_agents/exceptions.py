@@ -44,8 +44,18 @@ class GuardrailError(DeepDbAgentError):
 class EstimateExceededError(GuardrailError):
     """The EXPLAIN row estimate exceeded the configured threshold.
 
-    Unlike other :class:`GuardrailError` cases (e.g. the session row budget), the query
-    tools catch this and turn it into corrective feedback for the agent instead of
-    interrupting the turn: the query is still **not executed**, but the agent is told to
-    refine its filters or aggregate and retry.
+    Like :class:`RowBudgetExceededError`, the query tools catch this and turn it into
+    corrective feedback for the agent instead of interrupting the turn: the query is still
+    **not executed**, but the agent is told to refine its filters or aggregate and retry.
+    """
+
+
+class RowBudgetExceededError(GuardrailError):
+    """The cumulative session row budget was exhausted.
+
+    Raised by :meth:`SessionBudget.charge` once the rows consumed in the session exceed the
+    configured budget. Like :class:`EstimateExceededError`, the query tools catch this and
+    turn it into corrective feedback for the agent instead of interrupting the turn: the
+    just-retrieved result is **not returned**, and the agent is told to aggregate/summarize
+    or start a new session rather than extract more rows.
     """

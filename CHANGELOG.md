@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-13
+
+### Added
+
+- **`RowBudgetExceededError`** (subclass of `GuardrailError`, exported from the package):
+  raised by `SessionBudget.charge` when the cumulative session row budget is exhausted.
+  See [#8](https://github.com/giurlanda/deep-db-agents/issues/8).
+- **`query_errors.format_budget_block`**: formats the budget exhaustion as corrective
+  feedback for the agent, mirroring `format_estimate_block`.
+
+### Changed
+
+- Session row-budget exhaustion is now reflected back to the agent as tool feedback instead
+  of interrupting the turn with a hard exception. Every tool that charges the budget
+  (`sample_rows`, `run_query`, `materialize_query`, and the Search/Neo4j/MongoDB equivalents)
+  catches `RowBudgetExceededError` and returns the formatted message.
+- **`GuardrailConfig.row_budget`** default raised from `50_000` to `10_000_000`, so normal
+  exploration no longer exhausts it prematurely.
+
 ## [0.3.0] - 2026-07-10
 
 ### Added
