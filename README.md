@@ -1,5 +1,9 @@
 # deep-db-agents
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/github/v/tag/giurlanda/deep-db-agents?sort=semver&label=version)](https://github.com/giurlanda/deep-search-agent/tags)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
 Simplified creation of **Deep Agents** ([LangChain](https://github.com/langchain-ai/deepagents))
 —generic or specialized on a specific database (MySQL, MariaDB, Postgres, MongoDB, Neo4j,
 SQLite, DuckDB, Elasticsearch, OpenSearch)—through a single factory function.
