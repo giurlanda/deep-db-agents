@@ -1,6 +1,7 @@
 # deep-db-agents
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/deep-db-agents)](https://pypi.org/project/deep-db-agents/)
 [![Version](https://img.shields.io/github/v/tag/giurlanda/deep-db-agents?sort=semver&label=version)](https://github.com/giurlanda/deep-search-agent/tags)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 
