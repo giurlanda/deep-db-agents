@@ -413,6 +413,7 @@ code-interpreter = [
 dev = [
     { name = "langchain-openai" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "ruff" },
 ]
@@ -478,6 +479,7 @@ requires-dist = [
     { name = "pymysql", marker = "extra == 'mariadb'", specifier = ">=1.1" },
     { name = "pymysql", marker = "extra == 'mysql'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "rich", marker = "extra == 'dev'", specifier = ">=15.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
