@@ -69,12 +69,17 @@ def test_release_is_triggered_by_version_tags() -> None:
     assert triggers["push"]["tags"] == ["v*"]
 
 
-def test_release_build_does_not_install_into_the_system_interpreter() -> None:
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [("release.yml", "build"), ("ci.yml", "lint"), ("ci.yml", "test")],
+)
+def test_uv_jobs_do_not_install_into_the_system_interpreter(workflow: str, job: str) -> None:
     """`uv pip install --system` targets the runner's externally managed Python and fails."""
-    steps = _load("release.yml")["jobs"]["build"]["steps"]
+    steps = _load(workflow)["jobs"][job]["steps"]
     commands = [step["run"] for step in steps if "run" in step]
 
     assert any(command.startswith("uv pip install ") for command in commands)
+    assert "uv venv" in commands, f"{workflow}:{job} must create the virtualenv it installs into"
     for command in commands:
         assert "--system" not in command, (
             f"install must target a virtualenv, not the system: {command}"
