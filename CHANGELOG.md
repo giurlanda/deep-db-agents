@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-26
+
+### Changed
+
+- **`deepagents` dependency range widened** from `>=0.6,<0.7` to `>=0.7.8,<1.0`, aligning the
+  library with the current upstream line (0.7.9 at the time of the bump) and, transitively,
+  with newer `langchain` / `langchain-core` / `langgraph` releases.
+  See [#10](https://github.com/giurlanda/deep-db-agents/issues/10).
+
+### Added
+
+- **`tests/test_deepagents_compat.py`**: guards the deepagents API surface the library builds
+  on (`create_deep_agent`, `CompiledSubAgent`, `BackendProtocol.write/read/ls/upload_files`,
+  `WriteResult`), so a future release inside the declared range that removes or renames one of
+  them fails fast instead of erroring at agent build time.
+
+### Notes
+
+- On deepagents 0.7, `StateBackend` applies file writes to the graph state itself and
+  `WriteResult` no longer carries a `files_update`. `materialize_result` already reads it
+  defensively via `getattr`, so materialization keeps working unchanged with both `StateBackend`
+  and `FilesystemBackend` (CSV and Parquet verified end to end).
+- deepagents 0.7 deprecates passing `model=None` to `create_deep_agent` (removal planned for
+  1.0). `create_deep_db_agents` still forwards no model when the caller omits one, which now
+  emits a `LangChainDeprecationWarning`. Passing an explicit `model=` — as every example in
+  `examples/` does — avoids it. Making the model mandatory is a breaking change, deferred.
+
 ## [0.3.1] - 2026-07-13
 
 ### Added
