@@ -17,23 +17,27 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv pip install --system ".[all,dev]" build twine
-      - run: ruff check src tests
-      - run: ruff format --check src tests
-      - run: pytest
+      # The interpreter setup-uv provides is the runner's system Python, which is
+      # externally managed: installing into it (`uv pip install --system`) is
+      # refused, so everything goes into a uv-managed virtualenv instead.
+      - run: uv venv
+      - run: uv pip install ".[all,dev]" build twine
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      - run: uv run --no-sync pytest
       # A tag must match __version__, otherwise the artifacts would be published
       # under a version nobody asked for.
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          pkg_version="$(python -c 'import deep_db_agents; print(deep_db_agents.__version__)')"
+          pkg_version="$(uv run --no-sync python -c 'import deep_db_agents; print(deep_db_agents.__version__)')"
           tag_version="${GITHUB_REF_NAME#v}"
           if [ "$pkg_version" != "$tag_version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package version $pkg_version" >&2
             exit 1
           fi
-      - run: python -m build
-      - run: twine check dist/*
+      - run: uv run --no-sync python -m build
+      - run: uv run --no-sync twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
           name: dist

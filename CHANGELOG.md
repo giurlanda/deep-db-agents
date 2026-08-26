@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `dev` extra also installs `pyyaml`, needed by the new workflow tests.
 
+### Fixed
+
+- **`release` workflow install step**: `uv pip install --system` targeted the runner's Debian
+  system interpreter, which is externally managed, so the `build` job failed immediately
+  (`The interpreter at /usr is externally managed`). The job now creates a uv-managed
+  virtualenv (`uv venv`), installs into it, and runs lint, tests, the tag/version check and the
+  build through `uv run --no-sync`. See [#14](https://github.com/giurlanda/deep-db-agents/issues/14).
+
 ### Notes
 
 - Trusted Publishing needs a one-off setup on each index: register `giurlanda/deep-db-agents`,

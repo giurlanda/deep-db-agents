@@ -67,3 +67,15 @@ def test_release_is_triggered_by_version_tags() -> None:
     # PyYAML parses the bare key `on` as the boolean True.
     triggers = _load("release.yml")[True]
     assert triggers["push"]["tags"] == ["v*"]
+
+
+def test_release_build_does_not_install_into_the_system_interpreter() -> None:
+    """`uv pip install --system` targets the runner's externally managed Python and fails."""
+    steps = _load("release.yml")["jobs"]["build"]["steps"]
+    commands = [step["run"] for step in steps if "run" in step]
+
+    assert any(command.startswith("uv pip install ") for command in commands)
+    for command in commands:
+        assert "--system" not in command, (
+            f"install must target a virtualenv, not the system: {command}"
+        )
