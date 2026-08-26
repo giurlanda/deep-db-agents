@@ -18,7 +18,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "deepagents>=0.6,<0.7",
+    "deepagents>=0.7.8,<1.0",
     "langchain>=1.0,<2.0",
     "langchain-core>=1.0,<2.0",
     "langchain-anthropic>=1.0,<2.0",
