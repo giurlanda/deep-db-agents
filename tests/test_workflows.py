@@ -79,7 +79,9 @@ def test_uv_jobs_do_not_install_into_the_system_interpreter(workflow: str, job: 
     commands = [step["run"] for step in steps if "run" in step]
 
     assert any(command.startswith("uv pip install ") for command in commands)
-    assert "uv venv" in commands, f"{workflow}:{job} must create the virtualenv it installs into"
+    assert any(command.startswith("uv venv") for command in commands), (
+        f"{workflow}:{job} must create the virtualenv it installs into"
+    )
     for command in commands:
         assert "--system" not in command, (
             f"install must target a virtualenv, not the system: {command}"

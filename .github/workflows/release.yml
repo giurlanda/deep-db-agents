@@ -19,8 +19,9 @@ jobs:
           python-version: "3.12"
       # The interpreter setup-uv provides is the runner's system Python, which is
       # externally managed: installing into it (`uv pip install --system`) is
-      # refused, so everything goes into a uv-managed virtualenv instead.
-      - run: uv venv
+      # refused, so everything goes into a uv-managed virtualenv instead. setup-uv
+      # already creates `.venv`, hence `--clear` rather than a plain `uv venv`.
+      - run: uv venv --clear
       - run: uv pip install ".[all,dev]" build twine
       - run: uv run --no-sync ruff check src tests
       - run: uv run --no-sync ruff format --check src tests
