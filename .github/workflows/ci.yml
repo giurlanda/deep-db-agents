@@ -22,9 +22,14 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv pip install --system ".[dev]"
-      - run: ruff check src tests
-      - run: ruff format --check src tests
+      # The interpreter setup-uv provides is the runner's system Python, which is
+      # externally managed: installing into it (`uv pip install --system`) is
+      # refused, so everything goes into a uv-managed virtualenv instead. setup-uv
+      # already creates `.venv`, hence `--clear` rather than a plain `uv venv`.
+      - run: uv venv --clear
+      - run: uv pip install ".[dev]"
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
 
   test:
     runs-on: ubuntu-latest
@@ -38,7 +43,8 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
+      - run: uv venv --clear
       # The tests mock every driver, but the dialect modules must still import,
       # so the full extras set is installed.
-      - run: uv pip install --system ".[all,dev]"
-      - run: pytest
+      - run: uv pip install ".[all,dev]"
+      - run: uv run --no-sync pytest

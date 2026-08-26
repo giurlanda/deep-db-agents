@@ -26,7 +26,8 @@ def db_tools(tmp_path):
     con.commit()
     con.close()
 
-    parsed = parse_db_url(f"sqlite:////{db_file}")  # path assoluto
+    # db_file è già assoluto: bastano tre slash (il quarto è il suo leading "/").
+    parsed = parse_db_url(f"sqlite:///{db_file}")  # path assoluto
     conn = ConnectionConfig(scheme="sqlite", host=None, port=None, credential={}, path=parsed.path)
     dialect = SQLiteDialect()
     built = dialect.build_tools(conn, GuardrailConfig(default_rows=10), materialize_enable=True)

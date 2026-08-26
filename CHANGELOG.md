@@ -29,6 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `dev` extra also installs `pyyaml`, needed by the new workflow tests.
 
+### Fixed
+
+- **`ci` and `release` workflow install steps**: `uv pip install --system` targeted the runner's
+  Debian system interpreter, which is externally managed, so every job failed immediately
+  (`The interpreter at /usr is externally managed`). The jobs now create a uv-managed virtualenv
+  (`uv venv`), install into it, and run `ruff`, `pytest`, the tag/version check and the build
+  through `uv run --no-sync`. See [#14](https://github.com/giurlanda/deep-db-agents/issues/14)
+  and [#16](https://github.com/giurlanda/deep-db-agents/issues/16).
+- **SQLite test fixture URL**: `tests/dialects/test_sqlite.py` built `sqlite:////<abs path>` from
+  an already absolute path (five slashes), so the parsed path kept a leading `//` and the
+  read-only `file:` URI came out as `file://tmp/...` — rejected by SQLite with
+  `invalid uri authority` on CPython below 3.11.11 / 3.12.8, where `pathname2url` does not
+  normalize it. The fixture now uses the documented `sqlite:///<abs path>` form.
+
 ### Notes
 
 - Trusted Publishing needs a one-off setup on each index: register `giurlanda/deep-db-agents`,
