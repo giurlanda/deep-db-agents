@@ -53,6 +53,13 @@ Per upload su pypi:
 uv run twine upload --repository pypi --skip-existing dist/*
 ```
 
+I comandi sopra restano validi per una pubblicazione manuale, ma **la via normale è il
+workflow `release`** ([.github/workflows/release.yml](.github/workflows/release.yml)): un push
+di un tag `v*` esegue lint + test, verifica che il tag combaci con `__version__`, builda e
+pubblica su TestPyPI e poi su PyPI via Trusted Publishing (OIDC, nessun token nel repo).
+Il workflow `ci` ([.github/workflows/ci.yml](.github/workflows/ci.yml)) gira `ruff` e `pytest`
+(Python 3.11/3.12/3.13) su ogni push su `main` e su ogni PR.
+
 ## Architettura
 
 Flusso: `db_url` → `parse_db_url` → `registry.resolve(scheme)` → istanza `DbDialect` →

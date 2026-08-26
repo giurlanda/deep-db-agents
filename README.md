@@ -283,7 +283,7 @@ Available extras:
 | `analysis` | `pandas`, `pyarrow` | Parquet support for `materialize_query` (large-result materialization) |
 | `code-interpreter` | `langchain-quickjs` | Sandboxed JS execution tool (see [Code interpreter](#code-interpreter-experimental)) |
 | `all` | every extra above | Every dialect driver + `analysis` + `code-interpreter` |
-| `dev` | `pytest`, `ruff`, `langchain-openai`, `rich` | Test/lint tooling for contributing to the library |
+| `dev` | `pytest`, `ruff`, `langchain-openai`, `rich`, `pyyaml` | Test/lint tooling for contributing to the library |
 | `docs` | `mkdocs`, `mkdocs-material`, `mkdocstrings[python]` | Build the documentation site locally |
 
 SQLite needs no extra (it uses the stdlib `sqlite3`). Extras can be combined, e.g.
@@ -382,6 +382,41 @@ database or the model, and the same pattern works with DuckDB.
 ruff check src tests
 pytest
 ```
+
+### Continuous integration
+
+Every push to `main` and every pull request runs the `ci` workflow
+([.github/workflows/ci.yml](.github/workflows/ci.yml)): `ruff check` plus `ruff format --check`
+on one job, and `pytest` on a matrix of Python 3.11, 3.12 and 3.13. The tests need no real
+database — every driver is mocked — but the full extras set is installed so that all dialect
+modules are importable.
+
+### Releasing
+
+Publishing is automated by the `release` workflow
+([.github/workflows/release.yml](.github/workflows/release.yml)), triggered by pushing a
+version tag:
+
+```bash
+git tag v0.4.0 && git push origin v0.4.0
+```
+
+The workflow then:
+
+1. runs lint and tests, and checks that the tag matches `deep_db_agents.__version__` (a
+   mismatch fails the release instead of publishing an unexpected version);
+2. builds the sdist and wheel with `python -m build` and validates them with `twine check`;
+3. publishes to **TestPyPI**, then to **PyPI**.
+
+Both publish jobs use [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/):
+they authenticate over OIDC through the GitHub environments `testpypi` and `pypi`, so no API
+token is stored in the repository. This requires a one-off setup on each index — register
+`giurlanda/deep-db-agents`, workflow `release.yml`, environment `testpypi` (on TestPyPI) or
+`pypi` (on PyPI) as a trusted publisher. Add required reviewers to the `pypi` environment if
+you want a manual approval gate before the irreversible step.
+
+`workflow_dispatch` runs the same pipeline up to TestPyPI only; the PyPI job is skipped unless
+the run comes from a `v*` tag.
 
 ## Disclaimer
 

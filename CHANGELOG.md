@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-26
+
+### Added
+
+- **GitHub Actions `ci` workflow** ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+  runs `ruff check` + `ruff format --check` and the full `pytest` suite on Python 3.11, 3.12
+  and 3.13 for every push to `main` and every pull request.
+- **GitHub Actions `release` workflow** ([.github/workflows/release.yml](.github/workflows/release.yml)):
+  triggered by a `v*` tag, it runs lint and tests, verifies that the tag matches
+  `deep_db_agents.__version__`, builds the sdist/wheel, validates them with `twine check`, then
+  publishes to TestPyPI and PyPI via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
+  (OIDC through the `testpypi` / `pypi` GitHub environments, no API token stored in the repo).
+  See [#12](https://github.com/giurlanda/deep-db-agents/issues/12).
+- **`tests/test_workflows.py`**: parses the workflow files and guards the parts the release
+  depends on — the CI matrix covering every supported Python version, TestPyPI running before
+  PyPI, and both publish jobs declaring `id-token: write` with a named environment.
+- **Python 3.13 classifier** in `pyproject.toml`, now that CI tests it.
+
+### Changed
+
+- The `dev` extra also installs `pyyaml`, needed by the new workflow tests.
+
+### Notes
+
+- Trusted Publishing needs a one-off setup on each index: register `giurlanda/deep-db-agents`,
+  workflow `release.yml`, environment `testpypi` (TestPyPI) or `pypi` (PyPI) as a trusted
+  publisher. Until that is done the publish jobs will fail to authenticate.
+
 ## [0.3.2] - 2026-08-26
 
 ### Changed
