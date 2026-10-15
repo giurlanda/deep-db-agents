@@ -11,6 +11,7 @@ from .exceptions import (
     InvalidMultiAgentConfigError,
     QueryNotAllowedError,
     RowBudgetExceededError,
+    SessionSetupError,
     UnsupportedSchemeError,
 )
 from .factory import create_db_agents, create_deep_db_agents, create_deep_db_multi_agents
@@ -35,6 +36,7 @@ __all__ = [
     "GuardrailError",
     "EstimateExceededError",
     "RowBudgetExceededError",
+    "SessionSetupError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

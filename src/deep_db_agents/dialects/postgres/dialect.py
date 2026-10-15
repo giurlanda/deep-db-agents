@@ -45,11 +45,17 @@ class PostgresDialect(SqlDialect):
     def _apply_timeout(self, cursor, timeout_s: int) -> None:
         """Set the server-side statement timeout on the given cursor.
 
+        Uses ``set_config`` instead of ``SET``: psycopg 3 binds parameters server-side
+        (``$1``), which PostgreSQL does not accept in a ``SET`` statement. ``is_local=false``
+        keeps the session scope of ``SET``; ``0`` disables the timeout.
+
         Args:
             cursor: DB-API cursor on which to set the timeout.
             timeout_s: Timeout in seconds.
         """
-        cursor.execute("SET statement_timeout = %s", (timeout_s * 1000,))
+        cursor.execute(
+            "SELECT set_config('statement_timeout', %s, false)", (str(timeout_s * 1000),)
+        )
 
     def _estimate_rows(self, cursor, sql: str) -> int:
         """Estimate the number of rows a query would return.

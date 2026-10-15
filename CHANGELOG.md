@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-15
+
+### Fixed
+
+- **PostgreSQL tools failing before running any query** with psycopg 3: the session timeout was
+  set with `SET statement_timeout = %s`, which psycopg 3 binds server-side as `$1` and
+  PostgreSQL rejects with `SyntaxError`. It now uses
+  `SELECT set_config('statement_timeout', %s, false)` (same session scope; `query_timeout_s=0`
+  disables the timeout). See [#17](https://github.com/giurlanda/deep-db-agents/issues/17).
+- **Misleading feedback on session setup failures causing an agent retry loop**: errors raised
+  while opening the connection or applying the timeout were reported as query errors telling the
+  agent to fix and retry its query. The SQL tools now wrap them in the new `SessionSetupError`
+  and return `format_setup_error` feedback, stating that the failure is not caused by the query
+  and that the agent must stop and report it to the user. A missing driver (`ImportError`) still
+  propagates.
+
+### Added
+
+- `SessionSetupError` (exported from `deep_db_agents`) and `query_errors.format_setup_error`.
+
 ## [0.4.0] - 2026-08-26
 
 ### Added

@@ -27,9 +27,15 @@ from ..exceptions import (
     EstimateExceededError,
     QueryNotAllowedError,
     RowBudgetExceededError,
+    SessionSetupError,
 )
 from ..guardrails import GuardrailConfig, SessionBudget
-from ..query_errors import format_budget_block, format_estimate_block, format_query_error
+from ..query_errors import (
+    format_budget_block,
+    format_estimate_block,
+    format_query_error,
+    format_setup_error,
+)
 from ..workspace import materialize_result, write_command
 
 # Simple SQL identifier (table/column). Intentionally restrictive.
@@ -260,11 +266,23 @@ class SqlDialect(DbDialect):
         Yields:
             A DB-API cursor with the timeout and watchdog already applied. The connection is
             closed automatically when the context exits.
+
+        Raises:
+            SessionSetupError: If opening the connection or applying the timeout fails; the
+                driver exception is chained as ``__cause__``.
         """
-        connection = self._connect(conn, guardrails)
+        try:
+            connection = self._connect(conn, guardrails)
+        except (DeepDbAgentError, ImportError):
+            raise
+        except Exception as exc:  # noqa: BLE001 - not caused by the agent's query
+            raise SessionSetupError("Could not connect to the database.") from exc
         try:
             cur = connection.cursor()
-            self._apply_timeout(cur, guardrails.query_timeout_s)
+            try:
+                self._apply_timeout(cur, guardrails.query_timeout_s)
+            except Exception as exc:  # noqa: BLE001 - not caused by the agent's query
+                raise SessionSetupError("Could not configure the query timeout.") from exc
             with self._watchdog(connection, cur, guardrails.query_timeout_s):
                 yield cur
                 cur.close()
@@ -317,6 +335,8 @@ class SqlDialect(DbDialect):
                 with self._cursor(conn, guardrails) as cur:
                     cur.execute(sql)
                     tables = [row[0] for row in cur.fetchall()]
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="table listing")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -333,6 +353,8 @@ class SqlDialect(DbDialect):
                     cur.execute(sql, params)
                     cols = self._columns(cur)
                     rows = cur.fetchall()
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="table description")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -357,6 +379,8 @@ class SqlDialect(DbDialect):
                     total = cur.fetchone()[0]
             except QueryNotAllowedError as exc:  # noqa: BLE001 - filter not allowed -> feedback
                 return format_query_error(exc, query=where, what="WHERE filter")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="count")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -373,6 +397,8 @@ class SqlDialect(DbDialect):
                     cur.execute(f"SELECT * FROM {qtable} LIMIT {n}")
                     cols = self._columns(cur)
                     rows = cur.fetchall()
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="sample")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -407,6 +433,8 @@ class SqlDialect(DbDialect):
                 return format_query_error(exc, query=sql, what="query")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
                 return format_estimate_block(exc, what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -453,6 +481,8 @@ class SqlDialect(DbDialect):
                 return format_query_error(exc, query=sql, what="query")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
                 return format_estimate_block(exc, what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent

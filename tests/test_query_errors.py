@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from deep_db_agents.connection import ConnectionConfig
-from deep_db_agents.exceptions import RowBudgetExceededError
-from deep_db_agents.query_errors import format_budget_block, format_query_error
+from deep_db_agents.exceptions import RowBudgetExceededError, SessionSetupError
+from deep_db_agents.query_errors import (
+    format_budget_block,
+    format_query_error,
+    format_setup_error,
+)
 
 
 def test_redacts_dsn_credentials_in_driver_message():
@@ -35,6 +39,24 @@ def test_budget_block_is_actionable_feedback():
     assert "2/1" in out
     # The message steers the agent to aggregate or reset rather than interrupting the turn.
     assert "aggregate" in out.lower()
+
+
+def test_setup_error_tells_agent_to_stop_not_retry():
+    try:
+        try:
+            raise RuntimeError("auth failed for mysql://admin:s3cr3t@db:3306 password=hunter2")
+        except RuntimeError as cause:
+            raise SessionSetupError("Could not connect to the database.") from cause
+    except SessionSetupError as exc:
+        out = format_setup_error(exc, what="count")
+    assert "Error type: RuntimeError" in out
+    assert "Could not connect to the database." in out
+    assert "auth failed" in out
+    assert "s3cr3t" not in out and "hunter2" not in out
+    # Not the "fix and retry" hint of format_query_error: retrying would loop.
+    assert "NOT caused by your count" in out
+    assert "Do not modify or retry the count" in out
+    assert "Fix the" not in out
 
 
 def test_connection_config_repr_masks_credentials():

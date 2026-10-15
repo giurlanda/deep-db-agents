@@ -17,13 +17,17 @@ query is **not executed**, but the agent is asked to refine or aggregate and ret
 session row budget (``RowBudgetExceededError`` from ``SessionBudget``) is likewise turned
 into feedback by ``format_budget_block``: the query did run, but its result is **not
 returned**, and the agent is asked to aggregate/summarize or start a new session.
+
+Failures while preparing the session (``SessionSetupError``: connection or timeout setup)
+are the exception to "fix and retry": they are not caused by the query, so
+``format_setup_error`` tells the agent to stop and report them instead of looping.
 """
 
 from __future__ import annotations
 
 import re
 
-from .exceptions import EstimateExceededError, RowBudgetExceededError
+from .exceptions import EstimateExceededError, RowBudgetExceededError, SessionSetupError
 from .observability import get_logger
 
 _logger = get_logger("query_errors")
@@ -90,6 +94,42 @@ def format_query_error(exc: Exception, *, query: str | None = None, what: str = 
         "if needed, inspect the schema first with the exploration tools."
     )
     return "\n".join(lines)
+
+
+def format_setup_error(exc: SessionSetupError, *, what: str = "query") -> str:
+    """Format a session setup failure as feedback that stops the agent from retrying.
+
+    Unlike :func:`format_query_error`, the failure happened while opening the connection
+    or configuring the session (e.g. the query timeout), so it is **not** caused by the
+    agent's request: telling the agent to fix and retry would only make it rewrite a
+    correct query in a loop. The message tells it to stop and report the problem instead.
+
+    Args:
+        exc: The setup exception; the driver exception, if any, is its ``__cause__``.
+        what: Label for the construct that was not executed (``"query"``, ``"count"``,
+            ...), used in the message.
+
+    Returns:
+        str: A multi-line message describing the failure, suitable for returning to the
+        agent as tool output.
+    """
+    cause = exc.__cause__ or exc
+    detail = str(exc).strip()
+    if cause is not exc:
+        cause_detail = str(cause).strip() or "(no detail provided by the driver)"
+        detail = f"{detail} {cause_detail}".strip()
+    detail = _redact_secrets(detail) or "(no detail provided)"
+    _logger.error("database session setup failed: %s: %s", type(cause).__name__, detail)
+    return "\n".join(
+        [
+            f"Error: the database session could not be prepared; the {what} was NOT executed.",
+            f"Error type: {type(cause).__name__}",
+            f"Detail: {detail}",
+            "This is a connection or configuration problem, NOT caused by your "
+            f"{what}. Do not modify or retry the {what}: stop and report this error "
+            "to the user.",
+        ]
+    )
 
 
 def format_estimate_block(exc: EstimateExceededError, *, what: str = "query") -> str:
