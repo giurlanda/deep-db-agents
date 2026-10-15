@@ -37,6 +37,16 @@ class QueryNotAllowedError(DeepDbAgentError):
     """The query violates the whitelist of allowed operations (e.g. it is not a SELECT)."""
 
 
+class SessionSetupError(DeepDbAgentError):
+    """The database session could not be prepared before running the agent's request.
+
+    Raised when opening the connection or configuring the session (e.g. the query timeout)
+    fails, chaining the driver exception as ``__cause__``. The failure is not caused by the
+    agent's query, so the query tools turn it into feedback that tells the agent **not** to
+    modify or retry the query (avoiding a retry loop) but to report the problem to the user.
+    """
+
+
 class GuardrailError(DeepDbAgentError):
     """A hard guardrail blocked execution (e.g. EXPLAIN threshold or budget exceeded)."""
 

@@ -184,6 +184,12 @@ The session-level guardrails behave the same way: an EXPLAIN row-estimate over t
 returned as feedback too — the query is not executed or its result not returned, and the agent is
 told to aggregate, refine its filters, or start a new session instead of interrupting the run.
 
+Failures that happen *before* the request reaches the database — opening the connection or
+configuring the session timeout — are the exception to "fix and retry": they raise
+`SessionSetupError` internally and are reported by `format_setup_error`, which tells the agent
+the problem is **not** caused by its query and that it must stop and report it to the user
+instead of rewriting a correct query in a loop.
+
 ## Materializing results: the filesystem backend
 
 The `materialize_query` tool (Deep Agent only, see [`create_db_agents`: a lighter
