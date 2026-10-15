@@ -16,6 +16,9 @@ _WRITE_STAGES = {"$out", "$merge"}
 _JS_OPERATORS = {"$where", "$function", "$accumulator"}
 # Keys forbidden anywhere in the document (filter or pipeline), at any depth.
 _FORBIDDEN_KEYS = _WRITE_STAGES | _JS_OPERATORS
+# Server error codes for rejected credentials or missing privileges: Unauthorized (13) and
+# AuthenticationFailed (18). Not caused by the query, so the agent must not retry it.
+_AUTH_ERROR_CODES = {13, 18}
 
 
 def _reject_forbidden_keys(obj: Any, *, what: str) -> None:
@@ -102,6 +105,30 @@ def connect(conn: ConnectionConfig, *, socket_timeout_ms: int | None = None):
     if auth_source:
         kwargs["authSource"] = auth_source
     return pymongo.MongoClient(**kwargs)
+
+
+def is_connection_error(exc: Exception) -> bool:
+    """Tells whether a pymongo exception is a connection/auth failure, not a query error.
+
+    ``NetworkTimeout`` (socket timeout on a slow operation) and ``ExecutionTimeout``
+    (``maxTimeMS`` exceeded) are excluded: there the query itself is too slow or too broad.
+
+    Args:
+        exc: The exception raised by the driver.
+
+    Returns:
+        ``True`` for unreachable server, lost connection, invalid client configuration or
+        rejected credentials/privileges; ``False`` otherwise (or if pymongo is missing).
+    """
+    try:
+        from pymongo import errors
+    except ImportError:  # pragma: no cover - depends on the installed extra
+        return False
+    if isinstance(exc, errors.NetworkTimeout):
+        return False
+    if isinstance(exc, (errors.ConnectionFailure, errors.ConfigurationError)):
+        return True
+    return isinstance(exc, errors.OperationFailure) and exc.code in _AUTH_ERROR_CODES
 
 
 def parse_json(text: str | None, *, what: str = "argument") -> Any:

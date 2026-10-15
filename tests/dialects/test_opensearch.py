@@ -3,6 +3,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.opensearch import OpenSearchDialect
 from deep_db_agents.guardrails import GuardrailConfig
@@ -130,3 +132,75 @@ def test_index_outside_scope_is_rejected(monkeypatch):
     out = tools["count_documents"].invoke({"index": "secrets"})
     assert "was not executed" in out.lower()
     assert "secrets" in out
+
+
+class RaisingClient(FakeClient):
+    """Client whose driver raises the given exception on every request."""
+
+    def __init__(self, exc):
+        super().__init__([])
+        self.exc = exc
+
+        def raise_exc(*args, **kwargs):  # noqa: ARG001
+            raise exc
+
+        self.cat.indices = raise_exc
+        self.indices.get_mapping = raise_exc
+
+    def count(self, index=None, body=None, request_timeout=None):  # noqa: ARG002
+        raise self.exc
+
+    def search(self, index=None, body=None, request_timeout=None):  # noqa: ARG002
+        raise self.exc
+
+
+def _make_raising(monkeypatch, exc):
+    dialect = OpenSearchDialect()
+    client = RaisingClient(exc)
+
+    @contextmanager
+    def fake_client(conn, guardrails=None):  # noqa: ARG001
+        yield client
+
+    monkeypatch.setattr(dialect, "_client", fake_client)
+    conn = ConnectionConfig(scheme="opensearch", host="localhost", port=9200, credential={})
+    built = dialect.build_tools(conn, GuardrailConfig())
+    return {t.name: t for t in built}
+
+
+@pytest.mark.parametrize(
+    "tool_name, args",
+    [
+        ("list_indices", {}),
+        ("describe_index", {}),
+        ("count_documents", {}),
+        ("sample_documents", {}),
+        ("run_query", {}),
+        ("search_query", {"query_string": "level:info"}),
+    ],
+)
+def test_connection_failure_is_reported_as_setup_error(monkeypatch, tool_name, args):
+    # The client connects lazily: connection/auth errors surface on the first request and
+    # must tell the agent to stop, not to rewrite a correct query in a loop.
+    osp = pytest.importorskip("opensearchpy")
+    for exc in (
+        osp.ConnectionError("N/A", "Connection refused to http://admin:s3cr3t@localhost", None),
+        osp.SSLError("N/A", "certificate verify failed", None),
+        osp.AuthenticationException(401, "security_exception", {}),
+        osp.AuthorizationException(403, "security_exception", {}),
+    ):
+        out = _make_raising(monkeypatch, exc)[tool_name].invoke(args)
+        assert "Do not modify or retry" in out, (type(exc).__name__, out)
+        assert "Fix the" not in out
+        assert f"Error type: {type(exc).__name__}" in out
+        assert "s3cr3t" not in out
+
+
+def test_request_timeout_keeps_fix_the_query_feedback(monkeypatch):
+    # ConnectionTimeout subclasses ConnectionError in opensearch-py, but a slow search timing
+    # out is caused by the query: the agent should refine it.
+    osp = pytest.importorskip("opensearchpy")
+    tools = _make_raising(monkeypatch, osp.ConnectionTimeout("TIMEOUT", "Read timed out", None))
+    out = tools["run_query"].invoke({})
+    assert "Fix the search" in out
+    assert "Do not modify or retry" not in out

@@ -20,12 +20,16 @@ returned**, and the agent is asked to aggregate/summarize or start a new session
 
 Failures while preparing the session (``SessionSetupError``: connection or timeout setup)
 are the exception to "fix and retry": they are not caused by the query, so
-``format_setup_error`` tells the agent to stop and report them instead of looping.
+``format_setup_error`` tells the agent to stop and report them instead of looping. Drivers
+that connect lazily (MongoDB, Neo4j, Elasticsearch, OpenSearch) only reach the server on the
+first operation, so their connection/auth errors are recognized by ``setup_failures``.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from .exceptions import EstimateExceededError, RowBudgetExceededError, SessionSetupError
 from .observability import get_logger
@@ -130,6 +134,35 @@ def format_setup_error(exc: SessionSetupError, *, what: str = "query") -> str:
             "to the user.",
         ]
     )
+
+
+@contextmanager
+def setup_failures(is_setup_failure: Callable[[Exception], bool]) -> Iterator[None]:
+    """Re-raise the connection/auth failures raised inside the block as ``SessionSetupError``.
+
+    Drivers with a lazy client (pymongo, neo4j, elasticsearch-py, opensearch-py) contact the
+    server only on the first operation, so connection and authentication errors surface there,
+    mixed with real query errors: the dialect-specific classifier tells them apart.
+
+    Args:
+        is_setup_failure: Returns ``True`` for a driver exception caused by the connection or
+            the credentials rather than by the agent's request.
+
+    Yields:
+        None.
+
+    Raises:
+        SessionSetupError: If the block raises an exception classified as a setup failure; the
+            driver exception is chained as ``__cause__``. Other exceptions propagate unchanged.
+    """
+    try:
+        yield
+    except Exception as exc:
+        if is_setup_failure(exc):
+            raise SessionSetupError(
+                "Could not connect to or authenticate with the database."
+            ) from exc
+        raise
 
 
 def format_estimate_block(exc: EstimateExceededError, *, what: str = "query") -> str:

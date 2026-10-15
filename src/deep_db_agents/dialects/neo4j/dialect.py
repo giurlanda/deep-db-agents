@@ -23,10 +23,17 @@ from ...exceptions import (
     EstimateExceededError,
     QueryNotAllowedError,
     RowBudgetExceededError,
+    SessionSetupError,
 )
 from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
-from ...query_errors import format_budget_block, format_estimate_block, format_query_error
+from ...query_errors import (
+    format_budget_block,
+    format_estimate_block,
+    format_query_error,
+    format_setup_error,
+    setup_failures,
+)
 from ...registry import register
 from ...workspace import json_bytes, materialize_result, write_command
 from . import tools
@@ -149,7 +156,9 @@ class Neo4jDialect(DbDialect):
             import neo4j
 
             work = neo4j.unit_of_work(timeout=float(timeout_s))(work)
-        with self._session(conn, guardrails) as session:
+        # The driver connects lazily: connection/auth failures surface in execute_read and
+        # are re-raised as SessionSetupError, so the agent is not told to fix the query.
+        with setup_failures(tools.is_connection_error), self._session(conn, guardrails) as session:
             return session.execute_read(work, *args)
 
     def build_tools(
@@ -167,6 +176,8 @@ class Neo4jDialect(DbDialect):
             """Lists the node labels present in the graph."""
             try:
                 _, records, _ = self._read(conn, guardrails, _collect, "CALL db.labels()", 1000)
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="label list")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -181,6 +192,8 @@ class Neo4jDialect(DbDialect):
                 _, records, _ = self._read(
                     conn, guardrails, _collect, "CALL db.relationshipTypes()", 1000
                 )
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="relationship type list")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -197,6 +210,8 @@ class Neo4jDialect(DbDialect):
                     conn, guardrails, _collect, "CALL db.relationshipTypes()", 1000
                 )
                 _, props, _ = self._read(conn, guardrails, _collect, "CALL db.propertyKeys()", 1000)
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="graph schema")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -218,6 +233,8 @@ class Neo4jDialect(DbDialect):
             cypher = f"MATCH {pattern} RETURN count(n) AS c"
             try:
                 _, records, _ = self._read(conn, guardrails, _collect, cypher, 1)
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="Cypher query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -243,6 +260,8 @@ class Neo4jDialect(DbDialect):
                 return format_query_error(exc, query=cypher, what="cypher")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high → feedback to the agent
                 return format_estimate_block(exc, what="Cypher query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="Cypher query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -280,6 +299,8 @@ class Neo4jDialect(DbDialect):
                 return format_query_error(exc, query=cypher, what="cypher")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high → feedback to the agent
                 return format_estimate_block(exc, what="Cypher query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="Cypher query")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent

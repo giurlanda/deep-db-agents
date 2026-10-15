@@ -210,3 +210,88 @@ def test_missing_database_raises(monkeypatch):
     # Nessun patch su _db: il controllo sul database mancante deve scattare.
     with pytest.raises(QueryNotAllowedError):
         tools["list_collections"].invoke({})
+
+
+class RaisingCollection:
+    """Collection whose driver raises the given exception on every operation."""
+
+    def __init__(self, exc):
+        self.exc = exc
+
+    def count_documents(self, query, maxTimeMS=None):  # noqa: ARG002, N803 - driver signature
+        raise self.exc
+
+    def find(self, query=None, projection=None, skip=0, limit=0):  # noqa: ARG002
+        raise self.exc
+
+    def aggregate(self, pipeline, maxTimeMS=None):  # noqa: ARG002, N803 - driver signature
+        raise self.exc
+
+
+class RaisingDB(FakeDB):
+    def __init__(self, exc):
+        super().__init__({"ordini": RaisingCollection(exc)})
+        self.exc = exc
+
+    def list_collection_names(self):
+        raise self.exc
+
+
+def _make_raising(monkeypatch, exc):
+    dialect = MongoDBDialect()
+    db = RaisingDB(exc)
+
+    @contextmanager
+    def fake_db(conn, guardrails=None):  # noqa: ARG001
+        yield db
+
+    monkeypatch.setattr(dialect, "_db", fake_db)
+    built = dialect.build_tools(CONN, GuardrailConfig(), materialize_enable=True)
+    return {t.name: t for t in built}
+
+
+_TOOL_CALLS = [
+    ("list_collections", {}),
+    ("describe_collection", {"collection": "ordini"}),
+    ("count_documents", {"collection": "ordini"}),
+    ("sample_documents", {"collection": "ordini"}),
+    ("find", {"collection": "ordini"}),
+    ("aggregate", {"collection": "ordini", "pipeline": "[]"}),
+]
+
+
+def _connection_errors():
+    errors = pytest.importorskip("pymongo.errors")
+    return [
+        errors.ServerSelectionTimeoutError(
+            "db:27017: [Errno 61] Connection refused (mongodb://admin:s3cr3t@db:27017)"
+        ),
+        errors.AutoReconnect("connection closed"),
+        errors.ConfigurationError("Unknown option foo"),
+        errors.OperationFailure("Authentication failed.", code=18),
+        errors.OperationFailure("not authorized on shop to execute command", code=13),
+    ]
+
+
+@pytest.mark.parametrize("tool_name, args", _TOOL_CALLS)
+def test_connection_failure_is_reported_as_setup_error(monkeypatch, tool_name, args):
+    # The MongoClient connects lazily: connection/auth errors surface on the first operation
+    # and must tell the agent to stop, not to rewrite a correct query in a loop.
+    for exc in _connection_errors():
+        out = _make_raising(monkeypatch, exc)[tool_name].invoke(args)
+        assert "Do not modify or retry" in out, (type(exc).__name__, out)
+        assert "Fix the" not in out
+        assert f"Error type: {type(exc).__name__}" in out
+        assert "s3cr3t" not in out
+
+
+def test_query_errors_and_timeouts_keep_fix_the_query_feedback(monkeypatch):
+    errors = pytest.importorskip("pymongo.errors")
+    for exc in (
+        errors.NetworkTimeout("db:27017: timed out"),  # slow operation: the query is the issue
+        errors.ExecutionTimeout("operation exceeded time limit", code=50),
+        errors.OperationFailure("unknown operator: $boom", code=2),
+    ):
+        out = _make_raising(monkeypatch, exc)["find"].invoke({"collection": "ordini"})
+        assert "Fix the find" in out, (type(exc).__name__, out)
+        assert "Do not modify or retry" not in out

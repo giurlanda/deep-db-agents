@@ -3,6 +3,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.elasticsearch import ElasticsearchDialect
 from deep_db_agents.guardrails import GuardrailConfig
@@ -293,3 +295,95 @@ def test_run_query_returns_feedback_on_driver_error(monkeypatch):
     out = tools["run_query"].invoke({"query": '{"term": {"boom": 1}}'})
     assert "was not executed" in out.lower()
     assert "unknown field [boom]" in out
+
+
+class RaisingClient(FakeClient):
+    """Client whose driver raises the given exception on every request."""
+
+    def __init__(self, exc):
+        super().__init__([])
+        self.exc = exc
+
+        def raise_exc(*args, **kwargs):  # noqa: ARG001
+            raise exc
+
+        self.cat.indices = raise_exc
+        self.indices.get_mapping = raise_exc
+
+    def count(self, index=None, body=None, request_timeout=None):  # noqa: ARG002
+        raise self.exc
+
+    def search(self, index=None, body=None, request_timeout=None):  # noqa: ARG002
+        raise self.exc
+
+
+def _make_raising(monkeypatch, exc):
+    dialect = ElasticsearchDialect()
+    client = RaisingClient(exc)
+
+    @contextmanager
+    def fake_client(conn, guardrails=None):  # noqa: ARG001
+        yield client
+
+    monkeypatch.setattr(dialect, "_client", fake_client)
+    conn = ConnectionConfig(scheme="elasticsearch", host="localhost", port=9200, credential={})
+    built = dialect.build_tools(conn, GuardrailConfig(), materialize_enable=True, backend=object())
+    return {t.name: t for t in built}
+
+
+def _api_error(cls, status):
+    elastic_transport = pytest.importorskip("elastic_transport")
+    meta = elastic_transport.ApiResponseMeta(
+        status=status,
+        http_version="1.1",
+        headers=elastic_transport.HttpHeaders(),
+        duration=0.0,
+        node=elastic_transport.NodeConfig("http", "localhost", 9200),
+    )
+    return cls(message="security_exception", meta=meta, body={"error": "security_exception"})
+
+
+def _call(tools, tool_name, args):
+    if tool_name in ("aggregate", "materialize_query"):
+        return tools[tool_name].func(runtime=SimpleNamespace(tool_call_id="call-1"), **args)
+    return tools[tool_name].invoke(args)
+
+
+_TOOL_CALLS = [
+    ("list_indices", {}),
+    ("describe_index", {}),
+    ("count_documents", {}),
+    ("sample_documents", {}),
+    ("run_query", {}),
+    ("search_query", {"query_string": "title:film"}),
+    ("aggregate", {"aggs": '{"n": {"value_count": {"field": "_id"}}}'}),
+    ("materialize_query", {}),
+]
+
+
+@pytest.mark.parametrize("tool_name, args", _TOOL_CALLS)
+def test_connection_failure_is_reported_as_setup_error(monkeypatch, tool_name, args):
+    # The client connects lazily: connection/auth errors surface on the first request and
+    # must tell the agent to stop, not to rewrite a correct query in a loop.
+    es = pytest.importorskip("elasticsearch")
+    for exc in (
+        es.ConnectionError(
+            "Connection refused", errors=(Exception("http://elastic:s3cr3t@localhost:9200"),)
+        ),
+        _api_error(es.AuthenticationException, 401),
+        _api_error(es.AuthorizationException, 403),
+    ):
+        out = _call(_make_raising(monkeypatch, exc), tool_name, args)
+        assert "Do not modify or retry" in out, (type(exc).__name__, out)
+        assert "Fix the" not in out
+        assert f"Error type: {type(exc).__name__}" in out
+        assert "s3cr3t" not in out
+
+
+def test_request_timeout_keeps_fix_the_query_feedback(monkeypatch):
+    # A slow search timing out is caused by the query: the agent should refine it.
+    es = pytest.importorskip("elasticsearch")
+    tools = _make_raising(monkeypatch, es.ConnectionTimeout("Connection timed out"))
+    out = tools["run_query"].invoke({})
+    assert "Fix the search" in out
+    assert "Do not modify or retry" not in out

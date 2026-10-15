@@ -188,7 +188,11 @@ Failures that happen *before* the request reaches the database — opening the c
 configuring the session timeout — are the exception to "fix and retry": they raise
 `SessionSetupError` internally and are reported by `format_setup_error`, which tells the agent
 the problem is **not** caused by its query and that it must stop and report it to the user
-instead of rewriting a correct query in a loop.
+instead of rewriting a correct query in a loop. MongoDB, Neo4j, Elasticsearch and OpenSearch
+clients connect lazily, so there the same feedback is triggered by the driver's connection and
+authentication/authorization errors raised on the first operation (e.g. an unreachable server
+or a wrong password). A query that times out because it is too slow still gets the "fix and
+retry" feedback.
 
 ## Materializing results: the filesystem backend
 
