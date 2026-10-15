@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
+
 from deep_db_agents.connection import ConnectionConfig
 from deep_db_agents.dialects.neo4j import Neo4jDialect
 from deep_db_agents.guardrails import GuardrailConfig
@@ -193,3 +195,49 @@ def test_materialize_cypher_gated_and_unique():
     assert "materialize_cypher" not in names_without
     assert names_with.count("materialize_cypher") == 1
     assert len(names_with) == len(set(names_with))  # nessun nome tool duplicato
+
+
+def _connection_errors():
+    exceptions = pytest.importorskip("neo4j.exceptions")
+    return [
+        exceptions.ServiceUnavailable("Couldn't connect to localhost:7687 password=hunter2"),
+        exceptions.SessionExpired("Session expired"),
+        exceptions.AuthError("The client is unauthorized due to authentication failure."),
+        exceptions.Forbidden("Access denied: missing privilege on database neo4j"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "tool_name, args",
+    [
+        ("list_labels", {}),
+        ("list_relationship_types", {}),
+        ("schema", {}),
+        ("count_nodes", {}),
+        ("run_cypher", {"cypher": "MATCH (n) RETURN n"}),
+    ],
+)
+def test_connection_failure_is_reported_as_setup_error(monkeypatch, tool_name, args):
+    # The driver connects lazily: connection/auth errors surface in execute_read and must
+    # tell the agent to stop, not to rewrite a correct query in a loop.
+    for exc in _connection_errors():
+
+        def on_run(cypher, exc=exc):  # noqa: ARG001
+            raise exc
+
+        out = _tools(monkeypatch, on_run)[tool_name].invoke(args)
+        assert "Do not modify or retry" in out, (type(exc).__name__, out)
+        assert "Fix the" not in out
+        assert f"Error type: {type(exc).__name__}" in out
+        assert "hunter2" not in out
+
+
+def test_cypher_error_keeps_fix_the_query_feedback(monkeypatch):
+    exceptions = pytest.importorskip("neo4j.exceptions")
+
+    def on_run(cypher):  # noqa: ARG001
+        raise exceptions.CypherSyntaxError("Invalid input 'RETUN'")
+
+    out = _tools(monkeypatch, on_run)["run_cypher"].invoke({"cypher": "MATCH (n) RETUN n"})
+    assert "Fix the Cypher query" in out
+    assert "Do not modify or retry" not in out

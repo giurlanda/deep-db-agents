@@ -32,10 +32,17 @@ from ..exceptions import (
     EstimateExceededError,
     QueryNotAllowedError,
     RowBudgetExceededError,
+    SessionSetupError,
 )
 from ..guardrails import GuardrailConfig, SessionBudget
 from ..pooling import LazyClient
-from ..query_errors import format_budget_block, format_estimate_block, format_query_error
+from ..query_errors import (
+    format_budget_block,
+    format_estimate_block,
+    format_query_error,
+    format_setup_error,
+    setup_failures,
+)
 from ..tabular import docs_to_table
 from ..workspace import materialize_result, write_command
 
@@ -210,6 +217,41 @@ class SearchDialect(DbDialect):
         """
         yield self._client_cache.get(lambda: self._connect(conn, guardrails))
 
+    def _is_connection_error(self, exc: Exception) -> bool:
+        """Tells whether a driver exception is a connection/auth failure, not a query error.
+
+        Concrete dialects override it with their driver's exception types; the default
+        classifies nothing, so every driver error is reported as a query error.
+
+        Args:
+            exc: The exception raised by the driver client.
+
+        Returns:
+            ``True`` if the failure is not caused by the agent's request.
+        """
+        return False
+
+    @contextmanager
+    def _guarded_client(self, conn: ConnectionConfig, guardrails: GuardrailConfig | None = None):
+        """Yields the client from ``_client``, reporting connection/auth failures as setup errors.
+
+        The ES/OS clients connect lazily, so these failures surface on the first request in
+        the ``with`` body: they are re-raised as ``SessionSetupError``.
+
+        Args:
+            conn: Connection parameters used to open the client if not already cached.
+            guardrails: Optional guardrail configuration passed through to ``_client``.
+
+        Yields:
+            The driver client.
+
+        Raises:
+            SessionSetupError: If the cluster is unreachable or rejects the credentials; the
+                driver exception is chained as ``__cause__``.
+        """
+        with setup_failures(self._is_connection_error), self._client(conn, guardrails) as client:
+            yield client
+
     def build_tools(
         self,
         conn: ConnectionConfig,
@@ -243,7 +285,7 @@ class SearchDialect(DbDialect):
         ) -> tuple[list[dict], int]:
             limit = guardrails.clamp_limit(page_size)
             offset = max(page, 0) * limit
-            with self._client(conn, guardrails) as client:
+            with self._guarded_client(conn, guardrails) as client:
                 estimate = client.count(index=target, body={"query": q}, request_timeout=timeout)[
                     "count"
                 ]
@@ -259,10 +301,12 @@ class SearchDialect(DbDialect):
         def list_indices() -> str:
             """Lists the indices visible to this agent (within the configured index scope)."""
             try:
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     stats = client.cat.indices(
                         index=allowed, format="json", request_timeout=timeout
                     )
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="index listing")
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
                 return format_query_error(exc, query=allowed, what="index listing")
             if not stats:
@@ -279,10 +323,12 @@ class SearchDialect(DbDialect):
             """
             try:
                 target = resolve_index(index, allowed)
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     mapping = client.indices.get_mapping(index=target, request_timeout=timeout)
             except QueryNotAllowedError as exc:  # noqa: BLE001 - scope violation -> feedback to the agent
                 return format_query_error(exc, query=index, what="index mapping")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="index mapping")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -308,12 +354,14 @@ class SearchDialect(DbDialect):
                     q = query
                 else:
                     q = parse_query(query, what="query")
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     total = client.count(index=target, body={"query": q}, request_timeout=timeout)[
                         "count"
                     ]
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=str(query), what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="count")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -326,7 +374,7 @@ class SearchDialect(DbDialect):
             try:
                 target = resolve_index(index, allowed)
                 n = guardrails.clamp_limit(min(limit, 20))
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     res = client.search(
                         index=target,
                         body={"query": {"match_all": {}}, "size": n},
@@ -334,6 +382,8 @@ class SearchDialect(DbDialect):
                     )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - scope violation -> feedback to the agent
                 return format_query_error(exc, query=index, what="search")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -371,6 +421,8 @@ class SearchDialect(DbDialect):
                 return format_query_error(exc, query=str(query), what="query")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
                 return format_estimate_block(exc, what="search")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -406,6 +458,8 @@ class SearchDialect(DbDialect):
                 return format_query_error(exc, query=query_string, what="query_string search")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high -> feedback to the agent
                 return format_estimate_block(exc, what="query_string search")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="query_string search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -446,7 +500,7 @@ class SearchDialect(DbDialect):
                     q = query
                 else:
                     q = parse_query(query, what="query")
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     res = client.search(
                         index=target,
                         body={"query": q, "size": 0, "aggs": a},
@@ -454,6 +508,8 @@ class SearchDialect(DbDialect):
                     )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - parsing error -> feedback to the agent
                 return format_query_error(exc, query=str(aggs), what="aggregation")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="aggregation")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent
@@ -512,7 +568,7 @@ class SearchDialect(DbDialect):
                     q = query
                 else:
                     q = parse_query(query, what="query")
-                with self._client(conn, guardrails) as client:
+                with self._guarded_client(conn, guardrails) as client:
                     # ``size`` stays within the engine result window (Elasticsearch/OpenSearch
                     # reject deep windows); the file size, not the row count, is the guardrail.
                     res = client.search(
@@ -522,6 +578,8 @@ class SearchDialect(DbDialect):
                     )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error -> feedback to the agent
                 return format_query_error(exc, query=str(query), what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="search")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error -> feedback to the agent

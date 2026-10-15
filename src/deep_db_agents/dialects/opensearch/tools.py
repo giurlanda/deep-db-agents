@@ -49,3 +49,28 @@ def connect(conn: ConnectionConfig, *, request_timeout: int | None = None) -> An
     if cred.get("user"):
         kwargs["http_auth"] = (cred["user"], cred.get("password", ""))
     return OpenSearch(**kwargs)
+
+
+def is_connection_error(exc: Exception) -> bool:
+    """Tell whether an opensearch-py exception is a connection/auth failure, not a query error.
+
+    A ``ConnectionTimeout`` (request timeout on a slow search) is excluded: there the query
+    itself is too slow or too broad.
+
+    Args:
+        exc: The exception raised by the driver.
+
+    Returns:
+        bool: ``True`` for unreachable cluster, TLS failure, rejected credentials (401) or
+        missing privileges (403); ``False`` otherwise (or if the driver is missing).
+    """
+    try:
+        import opensearchpy as driver
+    except ImportError:  # pragma: no cover - depends on the installed extra
+        return False
+    if isinstance(exc, driver.ConnectionTimeout):
+        return False
+    return isinstance(
+        exc,
+        (driver.ConnectionError, driver.AuthenticationException, driver.AuthorizationException),
+    )

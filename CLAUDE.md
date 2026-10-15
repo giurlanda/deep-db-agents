@@ -98,12 +98,16 @@ import lazy del driver, connessione, stime).
   timeout è imposto da un **watchdog** che chiama `interrupt()` da un thread separato.
 - MongoDB e Neo4j non sono DB-API: implementano direttamente `DbDialect` con i propri tool
   (es. [dialects/mongodb/dialect.py](src/deep_db_agents/dialects/mongodb/dialect.py)).
+- I driver non DB-API (MongoDB, Neo4j, ES/OS) si connettono in modo lazy: gli errori di
+  connessione/auth emergono alla prima operazione. `is_connection_error` nel `tools.py` del
+  dialect li classifica e `query_errors.setup_failures` li converte in `SessionSetupError`
+  (feedback "non ritentare"); un timeout di query lento resta un errore di query.
 - Elasticsearch e OpenSearch ereditano da `SearchDialect` in
   [dialects/search_base.py](src/deep_db_agents/dialects/search_base.py), che implementa i tool
   condivisi (`list_indices`, `describe_index`, `count_documents`, `sample_documents`,
   `run_query`, `search_query`, `materialize_query`) sopra l'API REST comune ai due driver
   (`cat.indices`, `indices.get_mapping`, `count`, `search`); ogni dialect concreto fornisce solo
-  `_connect`. L'accesso è limitato agli indici configurati in `credential["index"]` (nome
+  `_connect` e `_is_connection_error`. L'accesso è limitato agli indici configurati in `credential["index"]` (nome
   singolo, CSV o pattern con `*`), validati lato codice in ogni tool.
 
 ### Aggiungere un nuovo dialect

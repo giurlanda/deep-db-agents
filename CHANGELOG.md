@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-15
+
+### Fixed
+
+- **Agent retry loop on connection failures in the MongoDB, Neo4j, Elasticsearch and OpenSearch
+  dialects**: these drivers connect lazily, so an unreachable server or rejected credentials
+  surfaced on the first operation and were reported as query errors telling the agent to fix and
+  retry its query. The driver's connection, authentication and authorization errors (pymongo
+  `ConnectionFailure`/`ConfigurationError`/auth `OperationFailure` codes 13 and 18; neo4j
+  `ServiceUnavailable`/`SessionExpired`/`ConfigurationError`/`AuthError`/`Forbidden`; ES/OS
+  `ConnectionError`/`AuthenticationException`/`AuthorizationException`) are now reported with
+  `format_setup_error`, which tells the agent to stop and report the problem. Query timeouts
+  (pymongo `NetworkTimeout`/`ExecutionTimeout`, ES/OS `ConnectionTimeout`) keep the "fix and
+  retry" feedback. See [#19](https://github.com/giurlanda/deep-db-agents/issues/19).
+
+### Added
+
+- `query_errors.setup_failures`, a context manager that re-raises the exceptions matched by a
+  dialect-specific classifier as `SessionSetupError`.
+
 ## [0.4.1] - 2026-10-15
 
 ### Fixed

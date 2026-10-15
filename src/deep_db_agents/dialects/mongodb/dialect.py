@@ -21,10 +21,17 @@ from ...exceptions import (
     EstimateExceededError,
     QueryNotAllowedError,
     RowBudgetExceededError,
+    SessionSetupError,
 )
 from ...guardrails import GuardrailConfig, SessionBudget
 from ...pooling import LazyClient
-from ...query_errors import format_budget_block, format_estimate_block, format_query_error
+from ...query_errors import (
+    format_budget_block,
+    format_estimate_block,
+    format_query_error,
+    format_setup_error,
+    setup_failures,
+)
 from ...registry import register
 from ...workspace import json_bytes, materialize_result, take_within_bytes, write_command
 from . import tools
@@ -64,6 +71,27 @@ class MongoDBDialect(DbDialect):
         )
         yield client[conn.database]
 
+    @contextmanager
+    def _guarded_db(self, conn: ConnectionConfig, guardrails: GuardrailConfig | None = None):
+        """Yields the database from ``_db``, reporting connection/auth failures as setup errors.
+
+        The MongoClient connects lazily, so these failures surface on the first operation in
+        the ``with`` body: they are re-raised as ``SessionSetupError``.
+
+        Args:
+            conn: Connection parameters (host, port, credentials, database).
+            guardrails: Optional guardrail configuration passed through to ``_db``.
+
+        Yields:
+            The pymongo ``Database``.
+
+        Raises:
+            SessionSetupError: If the driver cannot reach the server or rejects the
+                credentials; the driver exception is chained as ``__cause__``.
+        """
+        with setup_failures(tools.is_connection_error), self._db(conn, guardrails) as db:
+            yield db
+
     def build_tools(
         self,
         conn: ConnectionConfig,
@@ -88,8 +116,10 @@ class MongoDBDialect(DbDialect):
         def list_collections() -> str:
             """Lists the collections available in the current database."""
             try:
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     names = sorted(db.list_collection_names())
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="collection list")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -105,8 +135,10 @@ class MongoDBDialect(DbDialect):
             """
             n = min(max(sample_size, 1), 100)
             try:
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     docs = _find(db[collection], limit=n)
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="collection read")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -133,10 +165,12 @@ class MongoDBDialect(DbDialect):
                 else:
                     query = tools.parse_json(filter, what="filter") or {}
                 tools.ensure_read_only_filter(query)
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     total = db[collection].count_documents(query, maxTimeMS=max_time_ms)
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error → feedback to the agent
                 return format_query_error(exc, query=str(filter), what="filter")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="count")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -149,8 +183,10 @@ class MongoDBDialect(DbDialect):
             """Returns a small sample of documents from a collection (default 5)."""
             try:
                 n = guardrails.clamp_limit(min(limit, 20))
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     docs = _find(db[collection], limit=n)
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="collection read")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -193,7 +229,7 @@ class MongoDBDialect(DbDialect):
                 tools.ensure_read_only_filter(query)
                 limit = guardrails.clamp_limit(page_size)
                 skip = max(page, 0) * limit
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     coll = db[collection]
                     total = coll.count_documents(query, maxTimeMS=max_time_ms)
                     guardrails.check_estimate(total, metrics)
@@ -202,6 +238,8 @@ class MongoDBDialect(DbDialect):
                 return format_query_error(exc, query=str(filter), what="filter")
             except EstimateExceededError as exc:  # noqa: BLE001 - estimate too high → feedback to the agent
                 return format_estimate_block(exc, what="find")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="find")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -232,10 +270,12 @@ class MongoDBDialect(DbDialect):
                     pipl = tools.parse_json(pipeline, what="pipeline") or []
                 stages = tools.ensure_read_only_pipeline(pipl)
                 capped = [*stages, {"$limit": guardrails.hard_max_rows}]
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     docs = list(db[collection].aggregate(capped, maxTimeMS=max_time_ms))
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error → feedback to the agent
                 return format_query_error(exc, query=str(pipeline), what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="pipeline")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent
@@ -274,7 +314,7 @@ class MongoDBDialect(DbDialect):
                 else:
                     pipl = tools.parse_json(pipeline, what="pipeline") or []
                 stages = tools.ensure_read_only_pipeline(pipl)
-                with self._db(conn, guardrails) as db:
+                with self._guarded_db(conn, guardrails) as db:
                     # Pull the lazy cursor only up to the byte budget so memory stays bounded;
                     # materialize_result then enforces the same ceiling on the written file.
                     cursor = db[collection].aggregate(stages, maxTimeMS=max_time_ms)
@@ -283,6 +323,8 @@ class MongoDBDialect(DbDialect):
                     )
             except QueryNotAllowedError as exc:  # noqa: BLE001 - query parsing error → feedback to the agent
                 return format_query_error(exc, query=str(pipeline), what="query")
+            except SessionSetupError as exc:  # noqa: BLE001 - setup failure -> feedback, no retry
+                return format_setup_error(exc, what="pipeline")
             except (DeepDbAgentError, ImportError):
                 raise
             except Exception as exc:  # noqa: BLE001 - driver error → feedback to the agent

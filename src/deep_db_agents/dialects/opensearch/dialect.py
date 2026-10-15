@@ -49,3 +49,14 @@ class OpenSearchDialect(SearchDialect):
         """
         timeout = guardrails.query_timeout_s if guardrails else None
         return tools.connect(conn, request_timeout=timeout)
+
+    def _is_connection_error(self, exc: Exception) -> bool:
+        """Tell whether a driver exception is a connection/auth failure.
+
+        Args:
+            exc: The exception raised by the OpenSearch client.
+
+        Returns:
+            bool: ``True`` if the failure is not caused by the agent's request.
+        """
+        return tools.is_connection_error(exc)

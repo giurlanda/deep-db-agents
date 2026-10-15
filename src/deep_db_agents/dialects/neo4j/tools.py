@@ -59,6 +59,33 @@ def connect(conn: ConnectionConfig, *, network_timeout_s: int | None = None):
     return neo4j.GraphDatabase.driver(uri, auth=auth, **config)
 
 
+def is_connection_error(exc: Exception) -> bool:
+    """Tells whether a neo4j exception is a connection/auth failure, not a query error.
+
+    Args:
+        exc: The exception raised by the driver.
+
+    Returns:
+        ``True`` for unreachable server, expired session, invalid driver configuration,
+        rejected credentials (``AuthError``) or missing privileges (``Forbidden``); ``False``
+        otherwise (or if the driver is missing).
+    """
+    try:
+        from neo4j import exceptions
+    except ImportError:  # pragma: no cover - depends on the installed extra
+        return False
+    return isinstance(
+        exc,
+        (
+            exceptions.ServiceUnavailable,
+            exceptions.SessionExpired,
+            exceptions.ConfigurationError,
+            exceptions.AuthError,
+            exceptions.Forbidden,
+        ),
+    )
+
+
 def quote_label(label: str) -> str:
     """Escapes a Cypher label/identifier (doubled backticks).
 
